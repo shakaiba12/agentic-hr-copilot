@@ -9,48 +9,14 @@
 
 ---
 
-## 🌟 Key Features
+##  Key Features
 
-- 💬 **Natural-Language Queries (NL2SQL)**: Convert plain English questions into safe, optimized SQL queries executed against HR databases.
-- 📚 **RAG Over Internal Policies**: Retrieve answers from internal company documents (leave policy, handbook, benefits) with precise evidence-backed citations.
-- 🔀 **Multi-Agent Orchestration (LangGraph)**: Router/Supervisor agent dynamically classifies queries and routes them to SQL, RAG, or Hybrid pipelines.
-- 🧩 **Hybrid Query Answers**: Combine structured HR data (headcount, tenure) with unstructured policy rules to answer complex questions (e.g., *"How many employees are eligible for maternity leave?"*).
-- 🛡️ **Safety & Human Approval Gate**: Sandbox SQL execution (read-only, whitelist), PII protection, and human sign-off triggers for high-risk operations.
-- 📊 **Full Observability & Evals**: End-to-end tracing via LangSmith and evaluation pipelines with Ragas (Faithfulness, Context Recall, Answer Relevance).
-
----
-
-## 🏛️ System Architecture
-
-```mermaid
-flowchart TD
-    User([User Query]) --> Supervisor[LangGraph Supervisor / Router]
-    
-    Supervisor -->|SQL Query| SQLAgent[NL2SQL Agent]
-    Supervisor -->|Policy Query| RAGAgent[RAG Retriever Agent]
-    Supervisor -->|Hybrid Query| HybridBranch[Hybrid Workflow]
-    
-    subgraph SQL Workflow
-        SQLAgent --> SchemaAgent[Schema Introspector]
-        SchemaAgent --> SQLGen[SQL Generator]
-        SQLGen --> SQLValidator[Security & Injection Validator]
-        SQLValidator --> SQLExecutor[(HR Database)]
-    end
-    
-    subgraph RAG Workflow
-        RAGAgent --> DocRetriever[Hybrid BM25 + Vector Search]
-        DocRetriever --> DocReader[Grounded RAG Reader]
-    end
-    
-    HybridBranch --> SQLAgent
-    HybridBranch --> RAGAgent
-    
-    SQLExecutor --> Aggregator[Hybrid Aggregator]
-    DocReader --> Aggregator
-    
-    Aggregator --> Evaluator[Answer Evaluator & Guardrails]
-    Evaluator --> FinalOutput([Final Answer with Citations])
-```
+-  **Natural-Language Queries (NL2SQL)**: Convert plain English questions into safe, optimized SQL queries executed against HR databases.
+-  **RAG Over Internal Policies**: Retrieve answers from internal company documents (leave policy, handbook, benefits) with precise evidence-backed citations.
+-  **Multi-Agent Orchestration (LangGraph)**: Router/Supervisor agent dynamically classifies queries and routes them to SQL, RAG, or Hybrid pipelines.
+- **Hybrid Query Answers**: Combine structured HR data (headcount, tenure) with unstructured policy rules to answer complex questions (e.g., *"How many employees are eligible for maternity leave?"*).
+-  **Safety & Human Approval Gate**: Sandbox SQL execution (read-only, whitelist), PII protection, and human sign-off triggers for high-risk operations.
+-  **Full Observability & Evals**: End-to-end tracing via LangSmith and evaluation pipelines with Ragas (Faithfulness, Context Recall, Answer Relevance).
 
 ---
 
@@ -71,17 +37,6 @@ flowchart TD
 ├── requirements.txt        # Python dependencies
 └── README.md
 ```
-
----
-
-## 🗺️ Roadmap & PR Breakdown
-
-- [ ] **PR #1: Project Scaffolding & Foundations** (`feat/project-scaffolding`)
-- [ ] **PR #2: Relational DB & NL2SQL Agent** (`feat/nl2sql-pipeline`)
-- [ ] **PR #3: Document Ingestion & RAG Pipeline** (`feat/rag-pipeline`)
-- [ ] **PR #4: LangGraph Supervisor & Hybrid Workflow** (`feat/multi-agent-orchestrator`)
-- [ ] **PR #5: Observability, Guardrails & Evals** (`feat/evals-and-observability`)
-- [ ] **PR #6: Interactive UI & Production Hardening** (`feat/ui-dashboard`)
 
 ---
 
