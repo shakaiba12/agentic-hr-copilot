@@ -34,11 +34,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY: SecretStr | None = None
 
     # Default LLM configuration
-
-    DEFAULT_PROVIDER: Literal["gemini", "openai", "groq"] = "gemini"
-    DEFAULT_MODEL: str = "gemini-3.7-flash"
+    DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "gemini"
+    DEFAULT_MODEL: str = "gemini-2.5-flash"
     OPENAI_MODEL: str = "gpt-4o-mini"
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    OLLAMA_MODEL: str = "deepseek-r1:latest"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
     DEFAULT_TEMPERATURE: float = Field(
         default=0.0,
         ge=0.0,
@@ -46,41 +47,45 @@ class Settings(BaseSettings):
     )
 
     # LangSmith Observability
-
     LANGSMITH_TRACING: bool = False
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_API_KEY: SecretStr | None = None
     LANGSMITH_PROJECT: str = "peoplequery-ai"
 
-    
     # Database Configuration
-
     DATABASE_URL: str = "sqlite:///./data/hr_database.sqlite"
-
     DB_QUERY_TIMEOUT_SECONDS: int = Field(
         default=15,
         gt=0,
     )
-
     DB_MAX_ROWS_RETURNED: int = Field(
         default=100,
         gt=0,
         le=10_000,
     )
 
-    # RAG Configuration
-
-    EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
-
+    # RAG & Chroma Configuration
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
     DOCS_DIR: Path = BASE_DIR / "company_docs"
-
-    VECTOR_DB_DIR: Path = BASE_DIR / "data" / "faiss_index"
-
+    CHROMA_PERSIST_DIR: Path = BASE_DIR / "data" / "chroma_db"
     TOP_K_RETRIEVAL: int = Field(
         default=4,
         gt=0,
         le=50,
     )
+    BM25_TOP_K: int = Field(
+        default=4,
+        gt=0,
+        le=50,
+    )
+
+    # Evaluation & Loop Bounds
+    MAX_EVALUATION_RETRIES: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+    )
+
 
     # Third-party environment configuration
 

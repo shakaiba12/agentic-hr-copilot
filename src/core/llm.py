@@ -53,10 +53,19 @@ def get_llm(
             **kwargs,
         )
 
+    if provider == "ollama":
+        return _create_ollama(
+            settings=settings,
+            model_name=model_name,
+            temperature=temperature,
+            **kwargs,
+        )
+
     raise ValueError(
         f"Unsupported LLM provider: '{provider}'. "
-        "Supported providers: gemini, openai, groq."
+        "Supported providers: gemini, openai, groq, ollama."
     )
+
 
 
 def _get_secret(key_obj) -> Optional[str]:
@@ -138,6 +147,33 @@ def _create_groq(
     return ChatGroq(
         model_name=model_name or settings.GROQ_MODEL,
         groq_api_key=api_key,
+        temperature=temperature,
+        **kwargs,
+    )
+
+
+def _create_ollama(
+    settings,
+    model_name: Optional[str],
+    temperature: float,
+    **kwargs,
+) -> BaseChatModel:
+    """
+    Connect to local Ollama via OpenAI-compatible endpoint
+    (defaults to http://localhost:11434/v1).
+    """
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError as exc:
+        raise ImportError(
+            "Install OpenAI/Ollama support with: pip install langchain-openai"
+        ) from exc
+
+    base_url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/v1"
+    return ChatOpenAI(
+        model=model_name or settings.OLLAMA_MODEL,
+        base_url=base_url,
+        api_key="ollama",  # Ollama local endpoint accepts any non-empty string
         temperature=temperature,
         **kwargs,
     )
