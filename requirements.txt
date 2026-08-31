@@ -15,6 +15,7 @@ tiktoken>=0.7.0
 
 # Database & Tools
 SQLAlchemy>=2.0.0
+sqlparse>=0.5.0
 aiosqlite>=0.20.0
 pydantic>=2.7.0
 pydantic-settings>=2.2.0
