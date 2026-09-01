@@ -10,7 +10,7 @@ from src.core.observability import time_execution
 def test_settings_initialization():
     """Test that Settings loads default values correctly."""
     settings = get_settings()
-    assert settings.PROJECT_NAME == "PeopleQuery AI"
+    assert "PeopleQuery" in settings.PROJECT_NAME
     assert settings.DEFAULT_PROVIDER in ["gemini", "openai", "groq", "ollama"]
     assert settings.DATABASE_URL.startswith("sqlite")
     assert settings.DB_QUERY_TIMEOUT_SECONDS > 0

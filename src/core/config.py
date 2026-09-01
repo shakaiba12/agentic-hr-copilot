@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Default LLM configuration
     DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "gemini"
-    DEFAULT_MODEL: str = "gemini-2.5-flash"
+    DEFAULT_MODEL: str = "gemini-3.6-flash"
     OPENAI_MODEL: str = "gpt-4o-mini"
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     OLLAMA_MODEL: str = "deepseek-r1:latest"
