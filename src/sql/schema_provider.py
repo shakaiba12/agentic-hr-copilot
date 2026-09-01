@@ -79,7 +79,19 @@ class SchemaProvider:
         rows = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
-        return [row[0] for row in rows]
+        table_names = [row[0] for row in rows]
+        if not table_names:
+            try:
+                from data.seed_db import seed_database
+                seed_database()
+                rows = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                ).fetchall()
+                table_names = [row[0] for row in rows]
+            except Exception:
+                pass
+        return table_names
+
 
     @staticmethod
     def _describe_table(conn: sqlite3.Connection, table: str) -> str:

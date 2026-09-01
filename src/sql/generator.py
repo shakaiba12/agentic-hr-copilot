@@ -76,10 +76,15 @@ class SQLGenerator:
         sql = self._extract_sql(raw)
 
         if sql.lstrip().startswith("-- CANNOT_GENERATE"):
-            reason = sql.lstrip("-- CANNOT_GENERATE:").strip()
+            prefix = "-- CANNOT_GENERATE:"
+            if prefix in sql:
+                reason = sql[sql.find(prefix) + len(prefix):].strip()
+            else:
+                reason = sql.replace("-- CANNOT_GENERATE", "").strip()
             return SQLGenerationResult(sql="", is_generatable=False, reason=reason)
 
         return SQLGenerationResult(sql=sql, is_generatable=True, reason="ok")
+
 
     @staticmethod
     def _extract_sql(raw: str) -> str:
