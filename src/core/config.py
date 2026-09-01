@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Default LLM configuration
     DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "gemini"
-    DEFAULT_MODEL: str = "gemini-2.5-flash"
+    DEFAULT_MODEL: str = "gemini-3.6-flash"
     OPENAI_MODEL: str = "gpt-4o-mini"
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     OLLAMA_MODEL: str = "deepseek-r1:latest"
@@ -85,6 +85,41 @@ class Settings(BaseSettings):
         ge=0,
         le=5,
     )
+
+    # Guardrails
+    ALLOWED_SQL_TABLES: list[str] = Field(
+        default_factory=lambda: [
+            "departments",
+            "positions",
+            "employees",
+            "leaves",
+            "benefits",
+            "employee_benefits",
+            "performance_reviews",
+        ],
+    )
+    BLOCKED_SQL_KEYWORDS: list[str] = Field(
+        default_factory=lambda: [
+            "DROP",
+            "DELETE",
+            "INSERT",
+            "UPDATE",
+            "ALTER",
+            "CREATE",
+            "TRUNCATE",
+            "REPLACE",
+            "GRANT",
+            "REVOKE",
+            "EXEC",
+            "EXECUTE",
+            "ATTACH",
+            "DETACH",
+            "PRAGMA",
+        ],
+    )
+    MAX_INPUT_LENGTH: int = Field(default=2000, gt=0, le=10_000)
+    REQUIRE_CITATIONS_FOR_RAG: bool = True
+    MASK_INDIVIDUAL_SALARIES: bool = True
 
 
     # Third-party environment configuration

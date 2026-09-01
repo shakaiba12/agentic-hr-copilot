@@ -53,3 +53,4 @@ faiss_index/
 .pytest_cache/
 .coverage
 htmlcov/
+company_docs/organization/emails.csv
