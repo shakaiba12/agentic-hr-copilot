@@ -45,6 +45,8 @@ def main():
     sql_guard = SQLGuardrail(settings)
     schema_provider = SchemaProvider()
     sql_executor = SQLExecutor()
+    sql_gen = SQLGenerator()
+    schema_context = schema_provider.get_full_schema()
 
     while True:
         try:
@@ -62,13 +64,9 @@ def main():
                 print(f"\n 🛑 [Input Guardrail Blocked]: {input_check.rejection_reason}\n")
                 continue
 
-            # 2. Schema Introspection
-            schema_context = schema_provider.get_full_schema()
-
-            # 3. SQL Generation via LLM
+            # 2. SQL Generation via LLM
             print("\n 🔍 [SQL Pipeline] Generating SQL query...")
             try:
-                sql_gen = SQLGenerator()
                 gen_result = sql_gen.generate(input_check.sanitized_query, schema_context)
             except Exception as exc:
                 print(f" ⚠️  [LLM Error]: Could not generate SQL ({exc})\n")

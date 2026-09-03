@@ -34,10 +34,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: SecretStr | None = None
 
     # Default LLM configuration
-    DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "gemini"
-    DEFAULT_MODEL: str = "gemini-3.6-flash"
+    DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "groq"
+    DEFAULT_MODEL: str = "openai/gpt-oss-120b"
     OPENAI_MODEL: str = "gpt-4o-mini"
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     OLLAMA_MODEL: str = "deepseek-r1:latest"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     DEFAULT_TEMPERATURE: float = Field(

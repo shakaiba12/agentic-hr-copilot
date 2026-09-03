@@ -22,13 +22,17 @@ class SchemaProvider:
         settings = get_settings()
         self._db_url = db_url or settings.DATABASE_URL
         self._db_path = self._resolve_sqlite_path(self._db_url)
+        self._cached_full_schema: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def get_full_schema(self) -> str:
+    def get_full_schema(self, force_refresh: bool = False) -> str:
         """Return a formatted schema string covering all allowed tables."""
+        if self._cached_full_schema and not force_refresh:
+            return self._cached_full_schema
+
         with sqlite3.connect(self._db_path) as conn:
             table_names = self._get_table_names(conn)
             sections: list[str] = []
@@ -41,7 +45,8 @@ class SchemaProvider:
         if fk_lines:
             schema_parts.append("\n-- Foreign key relationships")
             schema_parts.extend(fk_lines)
-        return "\n".join(schema_parts)
+        self._cached_full_schema = "\n".join(schema_parts)
+        return self._cached_full_schema
 
     def get_relevant_schema(self, hint_tables: Optional[list[str]] = None) -> str:
         """
