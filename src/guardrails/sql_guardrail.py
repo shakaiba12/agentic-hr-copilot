@@ -8,6 +8,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 import sqlparse
 from sqlparse.sql import Identifier
 
@@ -39,6 +47,7 @@ class SQLGuardrail:
         self._allowed_tables = {t.lower() for t in self.settings.ALLOWED_SQL_TABLES}
         self._blocked_keywords = {k.upper() for k in self.settings.BLOCKED_SQL_KEYWORDS}
 
+    @traceable(name="SQLValidation", run_type="chain")
     def validate(self, sql: str) -> SQLGuardrailResult:
         if not sql or not sql.strip():
             return SQLGuardrailResult(

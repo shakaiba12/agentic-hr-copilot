@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     LANGSMITH_TRACING: bool = False
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_API_KEY: SecretStr | None = None
-    LANGSMITH_PROJECT: str = "peoplequery-ai"
+    LANGSMITH_PROJECT: str = "enterprise-hr-copilot-dev"
 
     # Database Configuration
     DATABASE_URL: str = "sqlite:///./data/hr_database.sqlite"
@@ -129,11 +129,8 @@ class Settings(BaseSettings):
         Export settings to os.environ for third-party libraries
         such as LangSmith/LangChain.
         """
-
-        if not self.LANGSMITH_TRACING:
-            return
-
-        if not self.LANGSMITH_API_KEY:
+        if not self.LANGSMITH_TRACING or not self.LANGSMITH_API_KEY:
+            os.environ["LANGSMITH_TRACING"] = "false"
             return
 
         os.environ["LANGSMITH_TRACING"] = "true"

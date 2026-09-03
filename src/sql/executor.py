@@ -10,6 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 from src.core.config import get_settings
 
 
@@ -38,6 +46,7 @@ class SQLExecutor:
         self._max_rows = settings.DB_MAX_ROWS_RETURNED
         self._timeout = settings.DB_QUERY_TIMEOUT_SECONDS
 
+    @traceable(name="SQLExecution", run_type="chain")
     def execute(self, sql: str) -> ExecutionResult:
         """Run a validated SELECT and return rows as a list of dicts."""
         try:

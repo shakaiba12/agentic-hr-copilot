@@ -135,10 +135,11 @@ def test_company_docs_exist():
     assert docs_dir.exists()
 
     expected_docs = [
-        "leave_policy.md",
-        "remote_work_policy.md",
-        "employee_handbook.md",
-        "compensation_benefits.md",
+        "benefits-overview.md",
+        "code-of-conduct.md",
+        "home-office-and-stipends.md",
+        "parental-leave.md",
+        "time-off-policy.md",
     ]
     for doc_name in expected_docs:
         doc_path = docs_dir / doc_name

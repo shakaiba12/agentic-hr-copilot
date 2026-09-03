@@ -8,6 +8,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.core.llm import get_llm
@@ -50,6 +58,7 @@ class SQLGenerator:
     def __init__(self, provider: str | None = None, model: str | None = None) -> None:
         self._llm = get_llm(provider=provider, model_name=model, temperature=0.0)
 
+    @traceable(name="SQLGeneration", run_type="chain")
     def generate(self, question: str, schema_context: str) -> SQLGenerationResult:
         """
         Generate SQL from a natural-language question and schema context.
