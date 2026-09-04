@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-import sys
 import unicodedata
 from dataclasses import dataclass, field
-from typing import List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 @dataclass
@@ -674,85 +673,3 @@ class StructureAwareChunker:
         if "definition" in types:
             return "definition"
         return types[0]
-
-
-def run_cli_interactive() -> None:
-    """Interactive CLI tool for manual inspection and chunk approval."""
-    print("=" * 60)
-    print(" Enterprise RAG — Structure-Aware Chunking Inspector (Step 1)")
-    print("=" * 60)
-    print("Enter or paste Markdown content below.")
-    print("Type END on a new line when finished to process.\n")
-
-    lines: List[str] = []
-    try:
-        while True:
-            line = input()
-            if line.strip() == "END":
-                break
-            lines.append(line)
-    except (EOFError, KeyboardInterrupt):
-        pass
-
-    raw_input = "\n".join(lines)
-    if not raw_input.strip():
-        print("\n[Warning]: No content provided.")
-        return
-
-    chunker = StructureAwareChunker(config=ChunkingConfig(max_chunk_size=1200, min_chunk_size=150, overlap=120))
-    chunks = chunker.chunk_document(raw_input, document_id="manual_input")
-
-    print("\n" + "=" * 60)
-    print(f" GENERATED CHUNKS ({len(chunks)} total)")
-    print("=" * 60)
-
-    total_chars = len(raw_input)
-    total_tokens = sum(c.metadata.get("estimated_tokens", len(c.text) // 4) for c in chunks)
-    sizes = [len(c.text) for c in chunks] if chunks else [0]
-    warnings: List[str] = []
-    seen_ids: Set[str] = set()
-
-    for c in chunks:
-        # Check validation rules
-        if len(c.text) > 1200:
-            warnings.append(f"Chunk {c.chunk_index} exceeds max_chunk_size ({len(c.text)} > 1200)")
-        if not c.text.strip():
-            warnings.append(f"Chunk {c.chunk_index} is empty")
-        if c.chunk_id in seen_ids:
-            warnings.append(f"Duplicate chunk ID: {c.chunk_id}")
-        seen_ids.add(c.chunk_id)
-
-        heading_display = " > ".join(c.heading_path) if c.heading_path else "(Root Document)"
-        print(f"\n==========================================")
-        print(f"CHUNK {c.chunk_index:03d}")
-        print(f"==========================================")
-        print(f"ID:         {c.chunk_id}")
-        print(f"Type:       {c.content_type}")
-        print(f"Heading:    {heading_display}")
-        print(f"Characters: {len(c.text)}")
-        print(f"Tokens:     ~{c.metadata.get('estimated_tokens', len(c.text) // 4)}")
-        print(f"Offsets:    [{c.start_offset}:{c.end_offset}]")
-        print(f"\nTEXT:")
-        print(c.text)
-        print(f"==========================================")
-
-    print("\n" + "=" * 60)
-    print(" SUMMARY STATISTICS")
-    print("=" * 60)
-    print(f"Total input characters:  {total_chars}")
-    print(f"Total estimated tokens:  ~{total_tokens}")
-    print(f"Total chunks:            {len(chunks)}")
-    print(f"Minimum chunk size:      {min(sizes)} characters")
-    print(f"Maximum chunk size:      {max(sizes)} characters")
-    print(f"Average chunk size:      {sum(sizes) / max(1, len(chunks)):.1f} characters")
-    if warnings:
-        print("\n VALIDATION WARNINGS:")
-        for w in warnings:
-            print(f" - {w}")
-    else:
-        print("\n VALIDATION: All chunks satisfy size and integrity constraints.")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    run_cli_interactive()

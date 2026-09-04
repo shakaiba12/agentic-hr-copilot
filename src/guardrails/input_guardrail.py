@@ -35,8 +35,8 @@ class InputGuardrail:
 
     # Prompt injection / jailbreak patterns
     _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-        re.compile(r"(?i)\b(can\s+(you|u)\s+)?(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above|system|your)?\s*(instructions?|prompts?|rules?|commands?|restrictions?)\b"),
-        re.compile(r"(?i)\b(ignore|disregard|forget|bypass|override)\s+(all\s+)?(previous|prior|above|system|your\s+|the\s+)?\s*(instructions?|prompts?|rules?|safety\s+rules?|guardrails?|restrictions?|commands?)\b"),
+        re.compile(r"(?i)\b(can\s+(you|u)\s+)?i?gnore\s+(all\s+)?(your\s+|the\s+)?(previous|prior|above|system|existing)?\s*(instructions?|prompts?|rules?|commands?|restrictions?|guidelines?)\b"),
+        re.compile(r"(?i)\b(i?gnore|disregard|forget|bypass|override)\s+(all\s+)?(your\s+|the\s+)?(previous|prior|above|system|existing)?\s*(instructions?|prompts?|rules?|safety\s+rules?|guardrails?|restrictions?|commands?|policies)\b"),
         re.compile(r"(?i)\bforget\s+(everything|all)\s*(you\s+know|you\s+were\s+told)?\b"),
         re.compile(r"(?i)\bfrom\s+now\s+on\b"),
         re.compile(r"(?i)\byour\s+real\s+job\s+is\s+to\b"),

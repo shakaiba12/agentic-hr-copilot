@@ -94,7 +94,7 @@ class QueryRouter:
         re.compile(r"(?i)\b(email|e-mail)\s+(of|for)\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\b"),
         re.compile(r"(?i)\bwhat\s+(email|e-mail)\s+does\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\s+(use|have)\b"),
         re.compile(r"(?i)\bemployee\s+(email|mail|name|contact)\s+(for|of)\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\b"),
-        re.compile(r"(?i)\b(what\s+is\s+(the\s+)?|get\s+(the\s+)?|give\s+me\s+(the\s+)?|total\s+|current\s+)?(count|number|total)\s+of\s+(current\s+|curent\s+|all\s+|total\s+)?(employees?|employes?|employess?|staff|people|workers?|users?|doctors?|patients?|records?|positions?|departments?)\b"),
+        re.compile(r"(?i)\b(what\s+is\s+(the\s+)?|what\s+|get\s+(the\s+)?|give\s+me\s+(the\s+)?|total\s+|current\s+)?(count|number|total|percentage|percent|proportion|share|ratio)\s+of\s+(current\s+|curent\s+|all\s+|total\s+)?(employees?|employes?|employess?|staff|people|workers?|users?|doctors?|patients?|records?|positions?|departments?)\b"),
         re.compile(r"(?i)\b(\w+\s+)?(employees?|employe|employess|staff|worker)\s+(count|total|number|records?|database|information|salaries|salary|sary|salery|pay|compensation)\b"),
         re.compile(r"(?i)\b(salary|salaries|sary|salery|pay|compensation)\s+of\s+(\w+\s+)?(employees?|employe|employess|staff)\b"),
         re.compile(r"(?i)\b(current|curent|total)\s+(employee|employe|employess|staff)\s+(count|total|number)\b"),
@@ -127,6 +127,8 @@ class QueryRouter:
         re.compile(r"(?i)\b(enrolled\s+in\s+[a-zA-Z0-9\s]+|benefit\s+enrollments?|who\s+is\s+enrolled\s+in)\b"),
         re.compile(r"(?i)\b(who\s+reports\s+to|direct\s+reports\s+of|manager\s+of\s+[a-zA-Z\s]+|who\s+manages\s+[a-zA-Z\s]+)\b"),
         re.compile(r"(?i)\b(who\s+was\s+hired\s+in\s+\d{4}|newest\s+hires?|recent\s+hires?|most\s+tenured\s+employees?|who\s+has\s+been\s+here\s+longest)\b"),
+        re.compile(r"(?i)\b(who|which|what|list|show)\s+(employees?|employes?|employess?|people|staff|workers?|teammates?)?\s*(were|was|are)?\s*(hired\s+(after|before|in|on|between|since)|hire\s+date\s+(after|before|in|on|between|is|was))\b"),
+        re.compile(r"(?i)\b(hired\s+(after|before|in|on|between|since)|hire\s+date\s+(after|before|in|on|between))\b"),
         re.compile(r"(?i)\b(find|search|lookup|look\s+up|show|get)\s+(employee\s+|teammate\s+|record\s+for\s+)([a-zA-Z]+(\s+[a-zA-Z]+)?)\b"),
         re.compile(r"(?i)\b(vp\s+of\s+(engineering|sales)|engineering\s+manager|senior\s+software\s+engineer|software\s+engineer|senior\s+account\s+executive|account\s+executive|head\s+of\s+(marketing|people)|growth\s+marketing\s+specialist|hr\s+business\s+partner|talent\s+acquisition\s+lead|director\s+of\s+finance|financial\s+analyst|support\s+lead|support\s+specialist)\b"),
     )
@@ -135,7 +137,7 @@ class QueryRouter:
     _RAG_KNOWLEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.compile(r"(?i)\b(policy|policies|guidelines?|handbook|code\s+of\s+conduct)\b"),
         re.compile(r"(?i)\b(benefits?|health\s+care|health\s+plans?|medical|dental|vision|insurance|coverage|life\s+insurance|hsa|fsa)\b"),
-        re.compile(r"(?i)\b(leave|leaves|parental\s+leave|maternity|maternity\s+leave|paternity|time\s+off|pto|vacation|holidays?|sick\s+leave|bereavement|jury\s+duty)\b"),
+        re.compile(r"(?i)\b(leave|leaves|parental\s+leave|maternity|maternity\s+leave|paternity|time\s+off|pto|vacation|holidays?|sick\s+leave|bereavement|jury\s+duty|days\s+off|business\s+days\s+off|consecutive\s+(business\s+)?days|approval\s+(do\s+i\s+need|required)|whose\s+approval)\b"),
         re.compile(r"(?i)\b(expense\s+reimbursement|expense\s+rules?|expense\s+policy|work\s+expense|expenses?|reimbursement\s+rules?|reimburse|reimbursed|per\s+diem|stipends?|home\s+office|desk\s+setup|equipment|monitor)\b"),
         re.compile(r"(?i)\b(enrollment|open\s+enrollment|eligibility|eligible|new\s+hires?|qualifying\s+life\s+event|qle|dependents?)\b"),
         re.compile(r"(?i)\b(401k|retirement|contributions?|rippling|bamboo|sequoia|cigna|unitedhealthcare|kaiser|navia)\b"),
@@ -154,6 +156,11 @@ class QueryRouter:
         re.compile(r"(?i)\bwho\s+is\s+eligible\s+for\s+(health\s+benefits|benefits?|parental\s+leave|coverage)\b"),
         re.compile(r"(?i)\b(become\s+a\s+parent|having\s+a\s+child|time\s+away|need\s+time\s+off)\b"),
         re.compile(r"(?i)\b(contractors?|interns?|part-time)\s+(eligible|receive|claim|qualify|benefits?|policy)\b"),
+        re.compile(r"(?i)\b(hardware|macbook|macbooks|laptop|laptops|internship|internships)\b"),
+        re.compile(r"(?i)\b(property\s+of\s+the\s+company|permanent\s+property|company\s+property)\b"),
+        re.compile(r"(?i)\b(dollar\s+threshold|spending\s+threshold|expense\s+threshold|threshold\s+for\s+(expens|purchas|reimburse)|at\s+what\s+(dollar\s+)?threshold)\b"),
+        re.compile(r"(?i)\b(dinner|meals?|tickets?|hospitality|invitations?)\b.*?\b(vendors?|clients?|suppliers?|contractors?|partners?)\b"),
+        re.compile(r"(?i)\b(vendors?|clients?|suppliers?|contractors?|partners?)\b.*?\b(dinner|meals?|tickets?|hospitality|invitations?|gifts?)\b"),
         re.compile(r"(?i)\bmentioned\s+in\s+(this|the)\s+policy(\s+document)?\b"),
     )
 
@@ -247,8 +254,8 @@ class QueryRouter:
 
         if is_data_query and is_rag_query:
             # If the query is an explicit policy inquiry or allowance question without live operational headcount, route to RAG
-            is_explicit_policy = bool(re.search(r"(?i)\b(policy|policies|guidelines?|handbook|code\s+of\s+conduct|rules\s+for|allowed|entitled|eligible|can\s+(i|we|employees?)\s+take)\b", sanitized))
-            has_live_headcount = bool(re.search(r"(?i)\b(how\s+many\s+(employees?|people|staff|teammates?)|count\s+of|total\s+count|currently\s+(using|on|taking)|who\s+is\s+currently)\b", sanitized))
+            is_explicit_policy = bool(re.search(r"(?i)\b(policy|policies|guidelines?|handbook|code\s+of\s+conduct|rules\s+for|allowed|entitled|eligible|can\s+(i|we|employees?)\s+take|want\s+to\s+take|whose\s+approval|approval|permission|consecutive\s+days|days\s+off|business\s+days|premiums?|insurance\s+premiums?|coverage\s+percentage|coverage|pay\s+for\s+(health|medical|dental|vision|insurance|benefits?))\b", sanitized))
+            has_live_headcount = bool(re.search(r"(?i)\b(how\s+many\s+(employees?|people|staff|teammates?)|count\s+of|total\s+count|percentage\s+of\s+(employees?|people|staff|teammates?|workers?)|currently\s+(using|on|taking)|who\s+is\s+currently)\b", sanitized))
 
             if is_explicit_policy and not has_live_headcount:
                 return RouteDecision(

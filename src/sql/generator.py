@@ -35,7 +35,8 @@ Rules you MUST follow:
 5. Use table aliases for clarity when joining multiple tables.
 6. For date arithmetic in SQLite use: date('now', '-N months') or julianday().
 7. Return NULL-safe comparisons; prefer IS NULL over = NULL.
-8. If the question cannot be answered with the given schema, write exactly:
+8. For location/city queries (e.g. department locations like 'Austin, TX' or 'New York, NY'), use case-insensitive partial matching (e.g. d.location LIKE '%Austin%') rather than exact equality, since stored locations may include state codes or extra details.
+9. If the question cannot be answered with the given schema, write exactly:
    -- CANNOT_GENERATE: <brief reason>
 
 Schema:

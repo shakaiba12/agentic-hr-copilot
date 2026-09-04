@@ -1,6 +1,6 @@
 """
 Enterprise RAG Pipeline Components.
-Includes Guardrail Gate, Query Router, Markdown Normalization, Structure-Aware Chunking, and Pipeline Handler.
+Includes Guardrail Gate, Query Router, Markdown Normalization, Structure-Aware Chunking, Ingestion, Retrieval, Reranking, Context Builder, and Grounded Generation.
 Uses PEP 562 lazy loading to avoid import warnings when running submodules as CLI entrypoints.
 """
 
@@ -16,6 +16,19 @@ __all__ = [
     "QueryRouter",
     "RAGPipeline",
     "RAGPipelineResult",
+    "SharedEmbedder",
+    "ChromaVectorStore",
+    "IngestionPipeline",
+    "DenseRetriever",
+    "RetrievalResult",
+    "RetrievalPipeline",
+    "CrossEncoderReranker",
+    "RerankedResult",
+    "RerankedRetriever",
+    "ContextBuilder",
+    "FormattedContext",
+    "RAGGenerator",
+    "RAGGenerationResult",
 ]
 
 
@@ -33,6 +46,21 @@ def __getattr__(name: str) -> Any:
         return locals()[name]
     if name in ("RAGPipeline", "RAGPipelineResult"):
         from src.rag.pipeline import RAGPipeline, RAGPipelineResult
+        return locals()[name]
+    if name in ("SharedEmbedder", "ChromaVectorStore", "IngestionPipeline"):
+        from src.rag.ingestion import ChromaVectorStore, IngestionPipeline, SharedEmbedder
+        return locals()[name]
+    if name in ("DenseRetriever", "RetrievalResult", "RetrievalPipeline"):
+        from src.rag.retrieval import DenseRetriever, RetrievalPipeline, RetrievalResult
+        return locals()[name]
+    if name in ("CrossEncoderReranker", "RerankedResult", "RerankedRetriever"):
+        from src.rag.reranking import CrossEncoderReranker, RerankedResult, RerankedRetriever
+        return locals()[name]
+    if name in ("ContextBuilder", "FormattedContext"):
+        from src.rag.context_builder import ContextBuilder, FormattedContext
+        return locals()[name]
+    if name in ("RAGGenerator", "RAGGenerationResult"):
+        from src.rag.generator import RAGGenerationResult, RAGGenerator
         return locals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

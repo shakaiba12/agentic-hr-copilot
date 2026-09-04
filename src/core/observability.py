@@ -100,14 +100,17 @@ def safe_trace_span(
     clean_metadata = sanitize_metadata(metadata) if metadata else {}
 
     try:
-        with trace(
+        cm = trace(
             name=name,
             run_type=run_type,
             inputs=clean_inputs,
             metadata=clean_metadata,
             tags=tags or [],
-        ) as run:
-            yield run
+        )
     except Exception as exc:
-        logger.debug(f"LangSmith trace span '{name}' encountered non-fatal error: {exc}")
+        logger.debug(f"LangSmith trace span '{name}' initialization encountered non-fatal error: {exc}")
         yield None
+        return
+
+    with cm as run:
+        yield run

@@ -415,3 +415,62 @@ class TestPropertyInvariants:
         # Invariant 4: Determinism across repeated executions
         repeat_decision = router.route(query)
         assert decision == repeat_decision
+
+
+class TestTargetedRoutingRegressions:
+    """Regression tests for Issues 2, 3, and 4."""
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "What is the hardware procedure for interns at the end of their internship?",
+            "At what dollar threshold does an expensed physical item become the permanent property of the company?",
+            "Can I expense an Apple MacBook laptop for engineering?",
+            "What is the company property policy for expensed equipment?",
+            "Can an employee accept an expensive dinner or event tickets from a prospective vendor?",
+            "What is the policy on dinner invitations from suppliers?",
+        ],
+    )
+    def test_issue_2_hardware_and_property_routes_to_rag(self, router: QueryRouter, query: str):
+        decision = router.route(query)
+        assert decision.category == RouteCategory.RAG_KNOWLEDGE
+        assert decision.target == "rag"
+        assert decision.allowed is True
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "Which employees were hired after January 1, 2024?",
+            "Which employees were hired before January 1, 2024?",
+            "Show employees hired between January 1, 2024 and June 1, 2024.",
+            "List all employees hired since 2023",
+            "Show workers with hire date after 2024-01-01",
+        ],
+    )
+    def test_issue_3_hire_date_queries_route_to_sql(self, router: QueryRouter, query: str):
+        decision = router.route(query)
+        assert decision.category == RouteCategory.DATA_QUERY
+        assert decision.target == "data_specialist"
+        assert decision.allowed is True
+
+    def test_issue_4_insurance_premium_percentage_routes_to_rag(self, router: QueryRouter):
+        q = "What percentage of medical, dental, and vision insurance premiums does Sourcegraph pay?"
+        decision = router.route(q)
+        assert decision.category == RouteCategory.RAG_KNOWLEDGE
+        assert decision.target == "rag"
+        assert decision.allowed is True
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "What percentage of employees are in Engineering?",
+            "What percentage of employees work remotely?",
+            "What percentage of employees earn over $100k?",
+        ],
+    )
+    def test_issue_4_database_percentage_queries_remain_sql(self, router: QueryRouter, query: str):
+        decision = router.route(query)
+        assert decision.category == RouteCategory.DATA_QUERY
+        assert decision.target == "data_specialist"
+        assert decision.allowed is True
+

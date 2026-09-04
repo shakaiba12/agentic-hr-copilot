@@ -137,3 +137,27 @@ class TestSQLGuardrailIntegration:
         guard_result = self.guardrail.validate(sql)
         assert guard_result.is_valid is False
         # Never reached executor — no side effects
+
+
+class TestLocationQueryRegression:
+    """Issue 1 regression: Location partial matching prompt and execution."""
+
+    def test_sql_generator_prompt_contains_location_partial_matching_rule(self):
+        from src.sql.generator import _SYSTEM_PROMPT
+        assert "location" in _SYSTEM_PROMPT.lower()
+        assert "like" in _SYSTEM_PROMPT.lower()
+        assert "partial match" in _SYSTEM_PROMPT.lower()
+
+    def test_location_partial_match_returns_seeded_employees_in_austin(self):
+        executor = SQLExecutor()
+        sql = (
+            "SELECT COUNT(*) AS employee_count "
+            "FROM employees e "
+            "JOIN departments d ON e.department_id = d.id "
+            "WHERE d.location LIKE '%Austin%'"
+        )
+        res = executor.execute(sql)
+        assert res.success is True
+        # Austin departments in seed_db: People Operations (2 emp) + Customer Support (4 emp) = 6 employees
+        assert res.rows[0]["employee_count"] > 0
+
