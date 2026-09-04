@@ -8,12 +8,16 @@ export interface RouteDecision {
 
 export interface RAGSource {
   chunk_id?: string;
+  document_id?: string;
   document_name?: string;
   section_title?: string;
+  section?: string;
+  heading_path?: string;
   page_number?: number | string;
   token_count?: number;
   score?: number;
   text?: string;
+  content?: string;
   [key: string]: unknown;
 }
 
@@ -40,6 +44,8 @@ export interface ChatResponse {
   response: string;
   source: 'master' | 'rag' | 'sql' | string;
   allowed: boolean;
+  conversation_id: string;
+  conversation_title?: string | null;
   decision: RouteDecision;
   rag_result?: RAGResult | null;
   sql_result?: SQLResult | null;
@@ -75,4 +81,35 @@ export interface PolicyDocument {
   filename: string;
   title: string;
   size_bytes: number;
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ConversationMessageDetail {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  source?: string | null;
+  category?: string | null;
+  created_at: string;
+  metadata?: {
+    allowed?: boolean;
+    decision?: RouteDecision;
+    rag_result?: RAGResult;
+    sql_result?: SQLResult;
+  };
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: ConversationMessageDetail[];
 }

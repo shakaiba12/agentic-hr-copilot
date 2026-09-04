@@ -1,4 +1,4 @@
-import { ChatResponse, HealthStatus, PolicyDocument } from '../types/api';
+import { ChatResponse, HealthStatus, PolicyDocument, ConversationSummary, ConversationDetail } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -19,8 +19,44 @@ export async function fetchDocuments(): Promise<PolicyDocument[]> {
   return data.documents || [];
 }
 
+export async function fetchConversations(limit: number = 50): Promise<ConversationSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error(`Failed to list conversations: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function fetchConversation(id: string): Promise<ConversationDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations/${encodeURIComponent(id)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get conversation: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function createConversation(title?: string): Promise<ConversationSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to create conversation: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function deleteConversation(id: string): Promise<boolean> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  return response.ok;
+}
+
 export async function sendChatMessage(
   query: string,
+  conversationId?: string | null,
   history: Array<{ role: string; content: string }> = [],
   signal?: AbortSignal
 ): Promise<ChatResponse> {
@@ -29,7 +65,11 @@ export async function sendChatMessage(
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ query, history }),
+    body: JSON.stringify({
+      query,
+      conversation_id: conversationId || undefined,
+      history: history.length > 0 ? history : undefined,
+    }),
     signal,
   });
 
@@ -56,6 +96,7 @@ export interface StreamCallbacks {
 
 export function streamChatMessage(
   query: string,
+  conversationId: string | null | undefined,
   history: Array<{ role: string; content: string }> = [],
   callbacks: StreamCallbacks
 ): { abort: () => void } {
@@ -70,7 +111,11 @@ export function streamChatMessage(
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
         },
-        body: JSON.stringify({ query, history }),
+        body: JSON.stringify({
+          query,
+          conversation_id: conversationId || undefined,
+          history: history.length > 0 ? history : undefined,
+        }),
         signal: controller.signal,
       });
 

@@ -58,7 +58,11 @@ class SQLPipeline:
         self._schema_context = self.schema_provider.get_full_schema()
 
     @traceable(name="SQLPipeline", run_type="chain")
-    def handle(self, query: str) -> SQLPipelineResult:
+    def handle(
+        self,
+        query: str,
+        history: Optional[List[Any]] = None,
+    ) -> SQLPipelineResult:
         """Execute the SQL pipeline for a validated DATA_QUERY."""
         try:
             # 1. Prepare Schema Context
@@ -72,7 +76,7 @@ class SQLPipeline:
 
             # 2. Generate SQL from question and schema
             gen_result: SQLGenerationResult = self.generator.generate(
-                query, schema_context
+                query, schema_context, history=history
             )
             if not gen_result.is_generatable:
                 return SQLPipelineResult(

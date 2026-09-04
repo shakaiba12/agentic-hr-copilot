@@ -63,6 +63,11 @@ class Settings(BaseSettings):
         gt=0,
         le=10_000,
     )
+    MAX_CONVERSATION_HISTORY: int = Field(
+        default=10,
+        gt=0,
+        le=100,
+    )
 
     # RAG & Chroma Configuration
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

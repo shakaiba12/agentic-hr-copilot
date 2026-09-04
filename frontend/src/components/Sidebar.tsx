@@ -11,8 +11,10 @@ import {
   Building2,
   BrainCircuit,
   User,
+  MessagesSquare,
+  MessageSquare,
 } from 'lucide-react';
-import { HealthStatus, PolicyDocument } from '../types/api';
+import { HealthStatus, PolicyDocument, ConversationSummary } from '../types/api';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -24,6 +26,10 @@ interface SidebarProps {
   health: HealthStatus | null;
   messageCount: number;
   loading: boolean;
+  conversations?: ConversationSummary[];
+  currentConversationId?: string | null;
+  onSelectConversation?: (id: string) => void;
+  onDeleteConversation?: (id: string) => void;
 }
 
 const SQL_EXAMPLES = [
@@ -50,6 +56,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   health,
   messageCount,
   loading,
+  conversations = [],
+  currentConversationId,
+  onSelectConversation,
+  onDeleteConversation,
 }) => {
   return (
     <aside
@@ -122,6 +132,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {!collapsed && (
             <>
+              {/* Recent Conversations (Chat Memory) */}
+              {conversations.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <MessagesSquare className="w-3 h-3 text-cyan-400" />
+                      Recent Chats
+                    </p>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {conversations.length} saved
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 max-h-40 overflow-y-auto scroll-on-hover pr-1">
+                    {conversations.map((conv) => {
+                      const isActive = currentConversationId === conv.id;
+                      return (
+                        <div
+                          key={conv.id}
+                          className={[
+                            "group flex items-center justify-between gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition cursor-pointer",
+                            isActive
+                              ? "border-cyan-400/50 bg-cyan-950/40 text-cyan-200"
+                              : "border-white/5 bg-white/[0.02] text-slate-300 hover:border-white/20 hover:bg-white/[0.05]",
+                          ].join(" ")}
+                          onClick={() => onSelectConversation?.(conv.id)}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <MessageSquare className="w-3 h-3 shrink-0 text-cyan-300/70" />
+                            <span className="truncate text-[11px] font-medium">{conv.title}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {conv.message_count > 0 && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-white/[0.06] text-slate-400 font-mono">
+                                {conv.message_count}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteConversation?.(conv.id);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-red-400 hover:bg-white/10 transition"
+                              title="Delete conversation"
+                            >
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* System Capabilities */}
               <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-2">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
@@ -139,7 +206,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <div className="flex items-center gap-2">
                     <BrainCircuit className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span className="truncate">Deterministic Orchestration Gate</span>
+                    <span className="truncate">Persistent Short-Term Memory</span>
                   </div>
                 </div>
               </div>
@@ -156,7 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 </div>
 
-                <div className="space-y-1 max-h-36 overflow-y-auto scroll-on-hover pr-1">
+                <div className="space-y-1 max-h-32 overflow-y-auto scroll-on-hover pr-1">
                   {documents.length === 0 ? (
                     <p className="text-xs text-slate-500 italic p-1">Loading documents...</p>
                   ) : (
@@ -181,7 +248,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Sample Questions
                 </p>
 
-                <div className="space-y-1.5 max-h-48 overflow-y-auto scroll-on-hover pr-1">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto scroll-on-hover pr-1">
                   <p className="text-[10px] font-semibold text-cyan-300/80 uppercase">SQL / Data</p>
                   {SQL_EXAMPLES.slice(0, 2).map((q, idx) => (
                     <button

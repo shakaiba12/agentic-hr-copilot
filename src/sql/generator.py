@@ -36,9 +36,10 @@ Rules you MUST follow:
 6. For date arithmetic in SQLite use: date('now', '-N months') or julianday().
 7. Return NULL-safe comparisons; prefer IS NULL over = NULL.
 8. For location/city queries (e.g. department locations like 'Austin, TX' or 'New York, NY'), use case-insensitive partial matching (e.g. d.location LIKE '%Austin%') rather than exact equality, since stored locations may include state codes or extra details.
-9. If the question cannot be answered with the given schema, write exactly:
+9. If prior conversation context is provided, use it ONLY to resolve pronouns or omitted filters (e.g. department names or locations) for the current question.
+10. If the question cannot be answered with the given schema, write exactly:
    -- CANNOT_GENERATE: <brief reason>
-
+{history_context}
 Schema:
 {schema}
 """
@@ -59,15 +60,38 @@ class SQLGenerator:
     def __init__(self, provider: str | None = None, model: str | None = None) -> None:
         self._llm = get_llm(provider=provider, model_name=model, temperature=0.0)
 
+    @staticmethod
+    def _format_history_context(history: Optional[List[Any]]) -> str:
+        if not history:
+            return ""
+        lines = []
+        for turn in history[-6:]:
+            if isinstance(turn, dict):
+                role = str(turn.get("role", "user")).capitalize()
+                content = str(turn.get("content", "")).strip()
+                if content and not any(p in content for p in ("SELECT ", "[Orchestrator]", "[Generated SQL]")):
+                    lines.append(f"{role}: {content[:200]}")
+            elif isinstance(turn, str) and turn.strip():
+                lines.append(f"User: {turn.strip()[:200]}")
+        if not lines:
+            return ""
+        return "\nRecent Conversation Context:\n" + "\n".join(lines) + "\n"
+
     @traceable(name="SQLGeneration", run_type="chain")
-    def generate(self, question: str, schema_context: str) -> SQLGenerationResult:
+    def generate(
+        self,
+        question: str,
+        schema_context: str,
+        history: Optional[List[Any]] = None,
+    ) -> SQLGenerationResult:
         """
         Generate SQL from a natural-language question and schema context.
 
         Returns a SQLGenerationResult with `is_generatable=False` if the LLM
         signals it cannot produce a valid query.
         """
-        system = SystemMessage(content=_SYSTEM_PROMPT.format(schema=schema_context))
+        hist_ctx = self._format_history_context(history)
+        system = SystemMessage(content=_SYSTEM_PROMPT.format(schema=schema_context, history_context=hist_ctx))
         human = HumanMessage(content=question)
 
         response = self._llm.invoke([system, human])

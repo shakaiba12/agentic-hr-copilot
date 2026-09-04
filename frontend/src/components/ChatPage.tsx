@@ -12,7 +12,7 @@ import {
   AlertTriangle,
   RotateCcw,
 } from 'lucide-react';
-import { ChatMessage, HealthStatus, PolicyDocument } from '../types/api';
+import { ChatMessage, HealthStatus, PolicyDocument, ConversationSummary } from '../types/api';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { DataTable } from './DataTable';
@@ -30,6 +30,10 @@ interface ChatPageProps {
   onSendMessage: (query: string) => void;
   onClearChat: () => void;
   onStopGeneration: () => void;
+  conversations?: ConversationSummary[];
+  currentConversationId?: string | null;
+  onSelectConversation?: (id: string) => void;
+  onDeleteConversation?: (id: string) => void;
 }
 
 const SAMPLE_SQL_CARDS = [
@@ -78,6 +82,10 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   onSendMessage,
   onClearChat,
   onStopGeneration,
+  conversations = [],
+  currentConversationId,
+  onSelectConversation,
+  onDeleteConversation,
 }) => {
   const [inputQuery, setInputQuery] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -160,6 +168,10 @@ export const ChatPage: React.FC<ChatPageProps> = ({
             health={health}
             messageCount={messages.length}
             loading={loading || streaming}
+            conversations={conversations}
+            currentConversationId={currentConversationId}
+            onSelectConversation={onSelectConversation}
+            onDeleteConversation={onDeleteConversation}
           />
 
           {/* MAIN CHAT AREA */}

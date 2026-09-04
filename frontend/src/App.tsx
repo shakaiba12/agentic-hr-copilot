@@ -10,11 +10,15 @@ export function App() {
 
   const {
     messages,
+    currentConversationId,
+    conversations,
     loading,
     streaming,
     error,
     sendMessage,
-    clearChat,
+    startNewChat,
+    loadConversation,
+    deleteConversation,
     stopGeneration,
   } = useChat();
 
@@ -68,8 +72,12 @@ export function App() {
       health={health}
       documents={documents}
       onSendMessage={sendMessage}
-      onClearChat={clearChat}
+      onClearChat={startNewChat}
       onStopGeneration={stopGeneration}
+      conversations={conversations}
+      currentConversationId={currentConversationId}
+      onSelectConversation={loadConversation}
+      onDeleteConversation={deleteConversation}
     />
   );
 }
