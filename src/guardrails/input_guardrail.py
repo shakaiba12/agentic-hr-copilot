@@ -100,6 +100,27 @@ class InputGuardrail:
 
     @traceable(name="InputGuardrail", run_type="chain")
     def check(self, query: str) -> InputGuardrailResult:
+        res = self._perform_check(query)
+        try:
+            from langsmith.run_helpers import get_current_run_tree
+            run = get_current_run_tree()
+            if run:
+                run.inputs = {"query": query}
+                run.outputs = {
+                    "is_safe": res.is_safe,
+                    "sanitized_query": res.sanitized_query,
+                    "decision": "allowed" if res.is_safe else "blocked",
+                    "violations": list(res.violations),
+                    "rejection_reason": res.rejection_reason,
+                    "category": res.category,
+                }
+                if not res.is_safe:
+                    run.tags = list(set(run.tags + ["guardrail", "blocked"]))
+        except Exception:
+            pass
+        return res
+
+    def _perform_check(self, query: str) -> InputGuardrailResult:
         if not query or not query.strip():
             return InputGuardrailResult(
                 is_safe=False,

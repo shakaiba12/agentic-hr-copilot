@@ -84,6 +84,31 @@ class Settings(BaseSettings):
         le=50,
     )
 
+    # LLM-as-a-Judge Configuration
+    ENABLE_LLM_JUDGE: bool = True
+    JUDGE_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] | None = None
+    JUDGE_MODEL: str | None = None
+    JUDGE_TEMPERATURE: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+    )
+    MAX_JUDGE_RETRIES: int = Field(
+        default=1,
+        ge=0,
+        le=5,
+    )
+    JUDGE_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        gt=0,
+        le=60,
+    )
+    JUDGE_SCORE_THRESHOLD: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+    )
+
     # Evaluation & Loop Bounds
     MAX_EVALUATION_RETRIES: int = Field(
         default=2,
@@ -136,14 +161,20 @@ class Settings(BaseSettings):
         """
         if not self.LANGSMITH_TRACING or not self.LANGSMITH_API_KEY:
             os.environ["LANGSMITH_TRACING"] = "false"
+            os.environ["LANGCHAIN_TRACING_V2"] = "false"
             return
 
+        api_key = self.LANGSMITH_API_KEY.get_secret_value()
         os.environ["LANGSMITH_TRACING"] = "true"
         os.environ["LANGSMITH_ENDPOINT"] = self.LANGSMITH_ENDPOINT
-        os.environ["LANGSMITH_API_KEY"] = (
-            self.LANGSMITH_API_KEY.get_secret_value()
-        )
+        os.environ["LANGSMITH_API_KEY"] = api_key
         os.environ["LANGSMITH_PROJECT"] = self.LANGSMITH_PROJECT
+
+        # Also set LangChain standard environment variables
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_ENDPOINT"] = self.LANGSMITH_ENDPOINT
+        os.environ["LANGCHAIN_API_KEY"] = api_key
+        os.environ["LANGCHAIN_PROJECT"] = self.LANGSMITH_PROJECT
 
 
 @lru_cache

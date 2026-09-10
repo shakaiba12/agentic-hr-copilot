@@ -18,6 +18,18 @@ from sentence_transformers import CrossEncoder
 from src.core.config import Settings, get_settings
 from src.rag.retrieval.retriever import RetrievalResult
 
+try:
+    from langsmith import traceable
+    from langsmith.run_helpers import get_current_run_tree
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+    def get_current_run_tree():
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +75,7 @@ class CrossEncoderReranker:
             )
         return self._model
 
+    @traceable(name="RAG_Reranking", run_type="chain")
     def rerank(
         self,
         query: str,

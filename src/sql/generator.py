@@ -107,6 +107,23 @@ class SQLGenerator:
         raw = raw_text.strip()
 
 
+        result = self._parse_generation_response(raw)
+        try:
+            from langsmith.run_helpers import get_current_run_tree
+            run = get_current_run_tree()
+            if run:
+                run.inputs = {"question": question, "schema_snippet": schema_context[:300]}
+                run.outputs = {
+                    "raw_output": raw,
+                    "sql": result.sql,
+                    "is_generatable": result.is_generatable,
+                    "reason": result.reason,
+                }
+        except Exception:
+            pass
+        return result
+
+    def _parse_generation_response(self, raw: str) -> SQLGenerationResult:
         sql = self._extract_sql(raw)
 
         if sql.lstrip().startswith("-- CANNOT_GENERATE"):

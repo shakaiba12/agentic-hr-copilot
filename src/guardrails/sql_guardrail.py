@@ -49,6 +49,24 @@ class SQLGuardrail:
 
     @traceable(name="SQLValidation", run_type="chain")
     def validate(self, sql: str) -> SQLGuardrailResult:
+        res = self._perform_validate(sql)
+        try:
+            from langsmith.run_helpers import get_current_run_tree
+            run = get_current_run_tree()
+            if run:
+                run.inputs = {"raw_sql": sql}
+                run.outputs = {
+                    "is_valid": res.is_valid,
+                    "normalized_sql": res.normalized_sql,
+                    "referenced_tables": list(res.referenced_tables),
+                    "violations": list(res.violations),
+                    "notes": res.notes,
+                }
+        except Exception:
+            pass
+        return res
+
+    def _perform_validate(self, sql: str) -> SQLGuardrailResult:
         if not sql or not sql.strip():
             return SQLGuardrailResult(
                 is_valid=False,

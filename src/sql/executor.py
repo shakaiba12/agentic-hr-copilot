@@ -49,6 +49,24 @@ class SQLExecutor:
     @traceable(name="SQLExecution", run_type="chain")
     def execute(self, sql: str) -> ExecutionResult:
         """Run a validated SELECT and return rows as a list of dicts."""
+        res = self._perform_execute(sql)
+        try:
+            from langsmith.run_helpers import get_current_run_tree
+            run = get_current_run_tree()
+            if run:
+                run.inputs = {"sql": sql}
+                run.outputs = {
+                    "success": res.success,
+                    "row_count": res.row_count,
+                    "was_truncated": res.was_truncated,
+                    "error": res.error,
+                    "rows_sample": res.rows[:3] if res.rows else [],
+                }
+        except Exception:
+            pass
+        return res
+
+    def _perform_execute(self, sql: str) -> ExecutionResult:
         try:
             with sqlite3.connect(
                 self._db_path,

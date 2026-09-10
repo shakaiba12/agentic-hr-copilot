@@ -138,7 +138,9 @@ class QueryRouter:
         re.compile(r"(?i)\b(policy|policies|guidelines?|handbook|code\s+of\s+conduct)\b"),
         re.compile(r"(?i)\b(benefits?|health\s+care|health\s+plans?|medical|dental|vision|insurance|coverage|life\s+insurance|hsa|fsa)\b"),
         re.compile(r"(?i)\b(leave|leaves|parental\s+leave|maternity|maternity\s+leave|paternity|time\s+off|pto|vacation|holidays?|sick\s+leave|bereavement|jury\s+duty|days\s+off|business\s+days\s+off|consecutive\s+(business\s+)?days|approval\s+(do\s+i\s+need|required)|whose\s+approval)\b"),
-        re.compile(r"(?i)\b(expense\s+reimbursement|expense\s+rules?|expense\s+policy|work\s+expense|expenses?|reimbursement\s+rules?|reimburse|reimbursed|per\s+diem|stipends?|home\s+office|desk\s+setup|equipment|monitor)\b"),
+        re.compile(r"(?i)\b(expense\s+reimbursement|expense\s+rules?|expense\s+policy|work\s+expense|expenses?|reimbursement\s+rules?|reimbursements?|reimburse|reimbursed|per\s+diem|stipends?|home\s+office|desk\s*setup|desksetup|equipment|monitor|workspace|supplies)\b"),
+        re.compile(r"(?i)\b(spend\s+(on|of|for)|expecting\s+to\s+(team\s+to\s+)?spend|spend\s+limit|desk\s*setup\s+amount|allowance\s+for\s+desk)\b"),
+        re.compile(r"(?i)\b(documents?\s+(in|of|available)|knowledge\s+base|\bkb\b|handbooks?|policy\s+documents?)\b"),
         re.compile(r"(?i)\b(enrollment|open\s+enrollment|eligibility|eligible|new\s+hires?|qualifying\s+life\s+event|qle|dependents?)\b"),
         re.compile(r"(?i)\b(401k|retirement|contributions?|rippling|bamboo|sequoia|cigna|unitedhealthcare|kaiser|navia)\b"),
         re.compile(r"(?i)\b(gifts?|entertainment|bribery|conflict\s+of\s+interest|whistleblower|harassment|discrimination|equal\s+opportunity)\b"),
@@ -203,8 +205,30 @@ class QueryRouter:
             return self._handle_blocked_query(guard_result)
 
         sanitized = guard_result.sanitized_query
+        decision = self._compute_route(query=query, sanitized=sanitized, history=history)
+        try:
+            from langsmith.run_helpers import get_current_run_tree
+            run = get_current_run_tree()
+            if run:
+                run.inputs = {"original_query": query, "sanitized_query": sanitized}
+                run.outputs = {
+                    "predicted_intent": decision.category.value,
+                    "confidence": decision.confidence,
+                    "routing_decision": decision.target,
+                    "reason": decision.reason,
+                    "allowed": decision.allowed,
+                    "selected_pipeline": decision.target or "master",
+                }
+        except Exception:
+            pass
+        return decision
 
-        # Step 2: Casual / Greeting Check (Anchored greetings)
+    def _compute_route(
+        self,
+        query: str,
+        sanitized: str,
+        history: Optional[Union[List[str], List[dict], List[Any]]] = None,
+    ) -> RouteDecision:
         if any(p.search(sanitized) for p in self._CASUAL_PATTERNS):
             return RouteDecision(
                 category=RouteCategory.CASUAL,

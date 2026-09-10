@@ -114,6 +114,8 @@ class ChatResponse(BaseModel):
     decision: RouteDecisionPayload
     rag_result: Optional[RAGResultPayload] = None
     sql_result: Optional[SQLResultPayload] = None
+    judge_decision: Optional[Dict[str, Any]] = None
+    verdict_status: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -270,7 +272,11 @@ def handle_chat(payload: ChatRequest) -> ChatResponse:
     orchestrator = get_orchestrator()
 
     try:
-        res: OrchestratorResponse = orchestrator.process_query(query, history=history_context)
+        res: OrchestratorResponse = orchestrator.process_query(
+            query,
+            history=history_context,
+            session_id=conversation_id,
+        )
     except Exception as e:
         logger.exception("Error processing orchestrator query")
         raise HTTPException(status_code=500, detail=f"Orchestration error: {str(e)}")
@@ -319,6 +325,13 @@ def handle_chat(payload: ChatRequest) -> ChatResponse:
     if sql_payload:
         meta_to_save["sql_result"] = sql_payload.model_dump()
 
+    judge_payload = None
+    verdict_status_str = None
+    if res.judge_decision:
+        judge_payload = res.judge_decision.model_dump()
+        verdict_status_str = str(res.judge_decision.verdict_status.value)
+        meta_to_save["judge_decision"] = judge_payload
+
     store.add_message(
         conversation_id=conversation_id,
         role="assistant",
@@ -342,6 +355,8 @@ def handle_chat(payload: ChatRequest) -> ChatResponse:
         decision=decision_payload,
         rag_result=rag_payload,
         sql_result=sql_payload,
+        judge_decision=judge_payload,
+        verdict_status=verdict_status_str,
         error=res.error,
     )
 
@@ -383,7 +398,10 @@ async def handle_chat_stream(payload: ChatRequest):
         try:
             # Yield initial metadata
             res: OrchestratorResponse = await asyncio.to_thread(
-                orchestrator.process_query, query, history=history_context
+                orchestrator.process_query,
+                query,
+                history=history_context,
+                session_id=conversation_id,
             )
 
             meta_data = {

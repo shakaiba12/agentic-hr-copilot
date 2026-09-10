@@ -12,6 +12,19 @@ from src.rag.reranking.reranker import RerankedResult
 from src.rag.retrieval.retriever import RetrievalResult
 
 
+try:
+    from langsmith import traceable
+    from langsmith.run_helpers import get_current_run_tree
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+    def get_current_run_tree():
+        return None
+
+
 @dataclass
 class FormattedContext:
     """Formatted prompt context block along with structured source metadata."""
@@ -37,6 +50,7 @@ class ContextBuilder:
         self.max_chars = max_chars
         self.max_chunks = max_chunks
 
+    @traceable(name="RAG_Context_Builder", run_type="parser")
     def build_context(
         self,
         chunks: Sequence[Union[RetrievalResult, RerankedResult]],

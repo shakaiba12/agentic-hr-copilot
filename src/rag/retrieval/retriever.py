@@ -13,6 +13,18 @@ from src.core.config import Settings, get_settings
 from src.rag.ingestion.chroma_store import ChromaVectorStore
 from src.rag.ingestion.embedder import SharedEmbedder
 
+try:
+    from langsmith import traceable
+    from langsmith.run_helpers import get_current_run_tree
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+    def get_current_run_tree():
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +56,7 @@ class DenseRetriever:
         self.vector_store = vector_store or ChromaVectorStore(settings=self.settings)
         self.collection_name = collection_name
 
+    @traceable(name="RAG_Dense_Retrieval", run_type="retriever")
     def retrieve(
         self,
         query: str,
