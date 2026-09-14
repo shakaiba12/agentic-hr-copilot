@@ -1,5 +1,5 @@
 """
-Structure-Aware Markdown Filtering and Chunking Layer for Enterprise RAG Pipeline (Step 1).
+Structure-Aware Markdown Filtering and Chunking Layer for Enterprise RAG Pipeline.
 Preserves document hierarchy, lists, FAQ pairs, definitions, and sentence boundaries.
 """
 
@@ -32,7 +32,7 @@ class ChunkingConfig:
     """Configuration parameters for structure-aware chunking."""
 
     max_chunk_size: int = 1200
-    min_chunk_size: int = 150  # Small-chunk merge threshold
+    min_chunk_size: int = 150  
     overlap: int = 120
 
     def __post_init__(self) -> None:
@@ -131,7 +131,7 @@ class StructureAwareChunker:
 
     def chunk_document(self, text: str, document_id: str = "doc") -> List[DocumentChunk]:
         """
-        Produce deterministic, structure-aware chunks from raw Markdown text.
+        Produce structure-aware chunks from raw Markdown text.
         """
         normalized_text = self.filter.normalize(text)
         if not normalized_text:
@@ -254,7 +254,6 @@ class StructureAwareChunker:
             is_faq_q = bool(self._FAQ_Q_EXPLICIT_RE.match(p) or self._FAQ_BOLD_FIELD_RE.match(p))
             if is_faq_q and i + 1 < len(paragraphs):
                 next_p = paragraphs[i + 1].strip()
-                # Check if next paragraph is not another distinct FAQ question
                 if not (self._FAQ_Q_EXPLICIT_RE.match(next_p) or self._FAQ_BOLD_FIELD_RE.match(next_p)):
                     combined_faq = f"{p}\n\n{next_p}"
                     units.append((combined_faq, "faq"))
@@ -377,7 +376,6 @@ class StructureAwareChunker:
         for s in sentences:
             s_len = len(s)
 
-            # If a single sentence exceeds max_chunk_size, split by words
             if s_len > self.config.max_chunk_size:
                 if current_sentences:
                     block_txt = " ".join(current_sentences)
@@ -428,7 +426,6 @@ class StructureAwareChunker:
         for line in lines:
             line_len = len(line) + 1
 
-            # If a single line exceeds max_chunk_size, split it with word boundary fallback
             if line_len > self.config.max_chunk_size:
                 if current_lines:
                     block_txt = "\n".join(current_lines)
@@ -465,7 +462,6 @@ class StructureAwareChunker:
         for w in words:
             w_len = len(w)
 
-            # Hard character split for pathological word with no spaces
             if w_len > self.config.max_chunk_size:
                 if current_words:
                     chunks.append(" ".join(current_words))
@@ -492,17 +488,15 @@ class StructureAwareChunker:
         """Final safety guarantee that no chunk text exceeds max_chunk_size."""
         if len(text) <= self.config.max_chunk_size:
             return [text]
-        # Perform word/char split fallback
         return self._split_words(text)
 
     def _split_into_sentences(self, text: str) -> List[str]:
         """
-        Deterministic sentence splitter with abbreviation, URL, decimal, and quote protection.
+        Sentence splitter with abbreviation, URL, decimal, and quote protection.
         """
         if not text:
             return []
 
-        # Tokenize by potential sentence boundaries (. ! ?) followed by whitespace
         pattern = re.compile(r'([.!?]+["\')\]]*)(?:\s+|$)')
         tokens: List[str] = []
         last_pos = 0
@@ -511,14 +505,11 @@ class StructureAwareChunker:
             end_pos = match.end()
             cand = text[last_pos:end_pos].strip()
 
-            # Check if period was part of an abbreviation (e.g., i.e., U.S., etc.)
             words = cand.split()
             if words:
                 last_word = words[-1].lower().rstrip('.!?"\')]}')
-                # If last word is known abbreviation or single capital letter (initial), do not split
                 if last_word in self._KNOWN_ABBREVIATIONS or (len(last_word) == 1 and last_word.isalpha()):
                     continue
-                # Check for decimal/version numbers like 2.1 or $1,200.50
                 if re.search(r'\d+[.]\d*$', words[-1]):
                     continue
 
@@ -538,7 +529,6 @@ class StructureAwareChunker:
     def _merge_small_chunks(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
         """
         Merge small chunks (< min_chunk_size) with adjacent sibling chunks sharing the same heading path.
-        Restricted to compatible semantic types (never merge notices/definitions with unrelated prose).
         """
         if len(chunks) <= 1:
             return chunks
@@ -553,7 +543,6 @@ class StructureAwareChunker:
 
             current = chunks[i]
 
-            # Check forward merge
             can_merge_forward = (
                 i + 1 < len(chunks)
                 and len(current.text) < self.config.min_chunk_size
@@ -584,7 +573,6 @@ class StructureAwareChunker:
                 skip_next = True
                 continue
 
-            # Check backward merge
             can_merge_backward = (
                 len(current.text) < self.config.min_chunk_size
                 and bool(merged)
@@ -624,7 +612,7 @@ class StructureAwareChunker:
         document_id: str,
     ) -> List[DocumentChunk]:
         """
-        Assign exact normalized document offsets and deterministic sequential IDs.
+        Assign exact normalized document offsets and sequential IDs.
         """
         finalized: List[DocumentChunk] = []
         search_start = 0
@@ -635,14 +623,12 @@ class StructureAwareChunker:
             chunk.chunk_index = idx
             chunk.chunk_id = new_id
 
-            # Locate exact offset in normalized text
             found_pos = normalized_text.find(chunk.text, search_start)
             if found_pos != -1:
                 chunk.start_offset = found_pos
                 chunk.end_offset = found_pos + len(chunk.text)
-                search_start = found_pos + 1  # Advance search past start of current match
+                search_start = found_pos + 1
             else:
-                # Fallback search from document beginning
                 fallback_pos = normalized_text.find(chunk.text)
                 if fallback_pos != -1:
                     chunk.start_offset = fallback_pos
@@ -659,17 +645,3 @@ class StructureAwareChunker:
         if type_a in ("notice", "faq", "definition") or type_b in ("notice", "faq", "definition"):
             return False
         return True
-
-    @staticmethod
-    def _dominant_type(types: List[str]) -> str:
-        if not types:
-            return "section"
-        if "faq" in types:
-            return "faq"
-        if "notice" in types:
-            return "notice"
-        if "list" in types:
-            return "list"
-        if "definition" in types:
-            return "definition"
-        return types[0]

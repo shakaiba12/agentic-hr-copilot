@@ -59,9 +59,9 @@ class InputGuardrail:
     _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.compile(r"(?i)\b(show|print|reveal|display|give\s+me|expose|tell\s+me(\s+about)?)(\s+me)?\s+(the\s+|all\s+|your\s+)?\.env(\s+values?|\s+keys?|\s+file)?\b"),
         re.compile(r"(?i)\b\.env(\s+values?|\s+keys?|\s+file)?\b"),
-        re.compile(r"(?i)\b(show|print|reveal|give\s+me|expose|tell\s+me(\s+about)?)(\s+me)?\s+(the\s+|all\s+|your\s+)?(api[ _-]?keys?|openai_api_key|groq_api_key|gemini_api_key|langsmith_api_key|aws_secret_access_key)\b"),
-        re.compile(r"(?i)\b(show|print|reveal|give\s+me|expose|tell\s+me(\s+about)?)(\s+me)?\s+(the\s+|all\s+|your\s+)?(environment\s+variables?|env\s+vars?)\b"),
-        re.compile(r"(?i)\b(show|print|reveal|give\s+me|expose|tell\s+me(\s+about)?)(\s+me)?\s+(all\s+|your\s+)?(credentials?|passwords?|secrets?|secrects?|secret\s+tokens?|private\s+keys?|secret\s+keys?|database\s+credentials?|confidential\s+information)\b"),
+        re.compile(r"(?i)\b(show|print|reveal|give\s+me|expose|tell\s+me(\s+about)?|what\s+is)(\s+me)?\s+(the\s+|all\s+|your\s+)?(api[ _-]?keys?|openai_api_key|groq_api_key|gemini_api_key|langsmith_api_key|aws_secret_access_key|secret\s+api\s+key)\b"),
+        re.compile(r"(?i)\b(show|print|reveal|give\s+me|expose|tell\s+me(\s+about)?|what\s+is)(\s+me)?\s+(the\s+|all\s+|your\s+)?(environment\s+variables?|env\s+vars?)\b"),
+        re.compile(r"(?i)\b(show|print|reveal|give\s+me|expose|tell\s+me(\s+about)?|what\s+is)(\s+me)?\s+(all\s+|your\s+|the\s+)?(credentials?|passwords?|secrets?|secrects?|secret\s+tokens?|private\s+keys?|secret\s+keys?|secret\s+api\s+keys?|database\s+credentials?|confidential\s+information)\b"),
         re.compile(r"(?i)\breveal\s+(tokens|credentials|passwords|secrets?|secrects?|secret\s+keys?|openai_api_key|api_key|confidential\s+information)\b"),
         re.compile(r"(?i)\b(openai_api_key|aws_secret_access_key)\b"),
         re.compile(r"(?i)\bwhat\s+is\s+(the\s+)?(database|db|root|admin)\s+(password|credentials?)\b"),

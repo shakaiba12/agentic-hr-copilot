@@ -44,7 +44,7 @@ def get_llm(
     # 1. Intra-provider fallbacks for Groq
     if provider_name == "groq":
         current_model = model_name or settings.GROQ_MODEL
-        groq_alternatives = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        groq_alternatives = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
         for alt_model in groq_alternatives:
             if alt_model != current_model:
                 try:
@@ -63,7 +63,7 @@ def get_llm(
         try:
             gemini_llm = _create_gemini(
                 settings=settings,
-                model_name=None,
+                model_name="gemini-3.6-flash",
                 temperature=temp,
                 **kwargs,
             )
@@ -91,6 +91,7 @@ def get_llm(
                 settings=settings,
                 model_name=settings.OLLAMA_MODEL or "qwen2.5-coder:1.5b",
                 temperature=temp,
+                request_timeout=10.0,
                 **kwargs,
             )
             fallbacks.append(ollama_llm)
@@ -255,10 +256,12 @@ def _create_ollama(
         ) from exc
 
     base_url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/v1"
+    timeout = kwargs.pop("timeout", kwargs.pop("request_timeout", 10.0))
     return ChatOpenAI(
         model=model_name or settings.OLLAMA_MODEL,
         base_url=base_url,
-        api_key="ollama",  # Ollama local endpoint accepts any non-empty string
+        api_key="ollama",
         temperature=temperature,
+        timeout=timeout,
         **kwargs,
     )

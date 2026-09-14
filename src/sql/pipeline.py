@@ -17,12 +17,13 @@ except ImportError:
         return decorator
 
 from src.core.config import Settings, get_settings
-from src.core.observability import safe_trace_span
+from src.core.state import SQLState
 from src.evaluation.judge import LLMJudge
-from src.evaluation.schemas import JudgeDecision, SQLJudgeInput
+from src.evaluation.schemas import JudgeDecision
 from src.guardrails.sql_guardrail import SQLGuardrail, SQLGuardrailResult
 from src.sql.executor import ExecutionResult, SQLExecutor
-from src.sql.generator import SQLGenerationResult, SQLGenerator
+from src.sql.generator import SQLGenerator
+from src.sql.graph import SQLGraphBuilder, get_compiled_sql_graph
 from src.sql.schema_provider import SchemaProvider
 
 
@@ -44,7 +45,10 @@ class SQLPipelineResult:
 
 
 class SQLPipeline:
-    """End-to-end SQL query generator, validator, and database executor."""
+    """
+    End-to-end SQL query generator, validator, and database executor.
+    Acts as a thin compatibility façade around the LangGraph SQL Agent Subgraph.
+    """
 
     def __init__(
         self,
@@ -63,128 +67,61 @@ class SQLPipeline:
         self.judge = judge or LLMJudge()
         self._schema_context = self.schema_provider.get_full_schema()
 
+        self._builder = SQLGraphBuilder(
+            settings=self.settings,
+            schema_provider=self.schema_provider,
+            generator=self.generator,
+            guardrail=self.guardrail,
+            executor=self.executor,
+        )
+        self.graph = self._builder.build_graph()
+        self.workflow = self.graph.compile()
+
     @traceable(name="SQLPipeline", run_type="chain")
     def handle(
         self,
         query: str,
         history: Optional[List[Any]] = None,
     ) -> SQLPipelineResult:
-        """Execute the SQL pipeline for a validated DATA_QUERY."""
+        """Execute the SQL pipeline workflow for a validated DATA_QUERY."""
         try:
-            # 1. Prepare Schema Context
-            with safe_trace_span(
-                name="SchemaContext",
-                run_type="chain",
-                inputs={"query": query},
-                metadata={"tables_available": self.settings.ALLOWED_SQL_TABLES},
-            ) as schema_span:
-                schema_context = self._schema_context
-                if schema_span:
-                    schema_span.end(outputs={"schema_length": len(schema_context), "tables": self.settings.ALLOWED_SQL_TABLES})
+            initial_state: SQLState = {
+                "query": query,
+                "sanitized_query": query,
+                "chat_history": history,
+                "sql_retry_count": 0,
+                "db_schema_context": self._schema_context,
+            }
 
-            # 2. Generate SQL from question and schema
-            gen_result: SQLGenerationResult = self.generator.generate(
-                query, schema_context, history=history
-            )
-            if not gen_result.is_generatable:
-                msg = (
-                    f"I can query employee salary and database records, but \"{gen_result.reason}\" "
-                    "does not map clearly to a database field. What specific salary or employee data would you like to view?"
-                )
-                self._record_pipeline_output(query=query, sql="", row_count=0, message=msg, success=False, error=gen_result.reason)
-                return SQLPipelineResult(
-                    success=False,
+            final_state: SQLState = self.workflow.invoke(initial_state)
+            result: Optional[SQLPipelineResult] = final_state.get("sql_result")
+
+            if result is None:
+                # Fallback reconstruction if sql_result is somehow unset
+                sql_out = final_state.get("sql_output") or {}
+                success = sql_out.get("success", False)
+                result = SQLPipelineResult(
+                    success=success,
                     query=query,
-                    message=msg,
-                    error=gen_result.reason,
+                    generated_sql=final_state.get("generated_sql"),
+                    rows=final_state.get("sql_data") or [],
+                    row_count=final_state.get("sql_row_count", 0),
+                    message=final_state.get("candidate_answer", ""),
+                    error=final_state.get("sql_error"),
+                    judge_decision=final_state.get("judge_decision"),
+                    retries_attempted=final_state.get("sql_retry_count", 0),
                 )
-
-            # 3. Validate SQL safety via guardrail
-            validation: SQLGuardrailResult = self.guardrail.validate(gen_result.sql)
-            if not validation.is_valid:
-                msg = f"SQL Guardrail blocked query: {validation.notes}"
-                self._record_pipeline_output(query=query, sql=gen_result.sql, row_count=0, message=msg, success=False, error=validation.notes)
-                return SQLPipelineResult(
-                    success=False,
-                    query=query,
-                    generated_sql=gen_result.sql,
-                    validation=validation,
-                    message=msg,
-                    error=validation.notes,
-                )
-
-            # 4. Execute safe read-only SQL
-            exec_result: ExecutionResult = self.executor.execute(
-                validation.normalized_sql
-            )
-            if not exec_result.success:
-                msg = f"Database execution failed: {exec_result.error}"
-                self._record_pipeline_output(query=query, sql=validation.normalized_sql, row_count=0, message=msg, success=False, error=exec_result.error)
-                return SQLPipelineResult(
-                    success=False,
-                    query=query,
-                    generated_sql=validation.normalized_sql,
-                    validation=validation,
-                    execution=exec_result,
-                    message=msg,
-                    error=exec_result.error,
-                )
-
-            # 5. Process and format results
-            with safe_trace_span(
-                name="SQL_ResultProcessing",
-                run_type="chain",
-                inputs={"row_count": exec_result.row_count, "truncated": exec_result.was_truncated},
-            ) as res_span:
-                result_message = f"Successfully retrieved {exec_result.row_count} rows from database."
-                if res_span:
-                    res_span.end(outputs={"message": result_message, "rows_count": exec_result.row_count})
-
-            # 6. LLM-as-a-Judge Verification
-            decision: Optional[JudgeDecision] = None
-            if self.settings.ENABLE_LLM_JUDGE and exec_result.success:
-                with safe_trace_span(
-                    name="SQL_LLM_Judge",
-                    run_type="chain",
-                    inputs={"query": query, "sql": validation.normalized_sql, "rows_count": exec_result.row_count},
-                ) as judge_span:
-                    decision = self.judge.evaluate_sql(
-                        SQLJudgeInput(
-                            question=query,
-                            sql=validation.normalized_sql,
-                            sql_result=exec_result.rows,
-                            answer=result_message,
-                            history=history,
-                        )
-                    )
-                    if judge_span:
-                        judge_span.end(outputs={
-                            "passed": decision.passed,
-                            "score": decision.score,
-                            "correctness": getattr(decision, "correctness", decision.score),
-                            "verdict_status": decision.verdict_status,
-                        })
 
             self._record_pipeline_output(
                 query=query,
-                sql=validation.normalized_sql,
-                row_count=exec_result.row_count,
-                message=result_message,
-                success=True,
-                judge_decision=decision,
+                sql=result.generated_sql or "",
+                row_count=result.row_count,
+                message=result.message,
+                success=result.success,
+                error=result.error,
+                judge_decision=result.judge_decision,
             )
-
-            return SQLPipelineResult(
-                success=True,
-                query=query,
-                generated_sql=validation.normalized_sql,
-                validation=validation,
-                execution=exec_result,
-                rows=exec_result.rows,
-                row_count=exec_result.row_count,
-                message=result_message,
-                judge_decision=decision,
-            )
+            return result
 
         except Exception as exc:
             err_str = str(exc)
@@ -226,3 +163,4 @@ class SQLPipeline:
                 }
         except Exception:
             pass
+

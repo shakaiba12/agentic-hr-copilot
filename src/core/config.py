@@ -32,13 +32,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: SecretStr | None = None
     OPENAI_API_KEY: SecretStr | None = None
     GROQ_API_KEY: SecretStr | None = None
+    HF_TOKEN: SecretStr | None = None
 
     # Default LLM configuration
-    DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "groq"
-    DEFAULT_MODEL: str = "openai/gpt-oss-120b"
+    DEFAULT_PROVIDER: Literal["gemini", "openai", "groq", "ollama"] = "ollama"
+    DEFAULT_MODEL: str = "qwen2.5-coder:1.5b"
     OPENAI_MODEL: str = "gpt-4o-mini"
     GROQ_MODEL: str = "openai/gpt-oss-120b"
-    OLLAMA_MODEL: str = "deepseek-r1:latest"
+    OLLAMA_MODEL: str = "qwen2.5-coder:1.5b"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     DEFAULT_TEMPERATURE: float = Field(
         default=0.0,
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
     LANGSMITH_TRACING: bool = False
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
     LANGSMITH_API_KEY: SecretStr | None = None
-    LANGSMITH_PROJECT: str = "enterprise-hr-copilot-dev"
+    LANGSMITH_PROJECT: str = "people-query-hr"
 
     # Database Configuration
     DATABASE_URL: str = "sqlite:///./data/hr_database.sqlite"
@@ -115,6 +116,12 @@ class Settings(BaseSettings):
         ge=0,
         le=5,
     )
+    MAX_SQL_RETRIES: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+    )
+
 
     # Guardrails
     ALLOWED_SQL_TABLES: list[str] = Field(
@@ -175,6 +182,13 @@ class Settings(BaseSettings):
         os.environ["LANGCHAIN_ENDPOINT"] = self.LANGSMITH_ENDPOINT
         os.environ["LANGCHAIN_API_KEY"] = api_key
         os.environ["LANGCHAIN_PROJECT"] = self.LANGSMITH_PROJECT
+
+        # Export Hugging Face token for faster downloads & rate limit authorization
+        if self.HF_TOKEN:
+            hf_val = self.HF_TOKEN.get_secret_value()
+            os.environ["HF_TOKEN"] = hf_val
+            os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_val
+            os.environ["HUGGINGFACE_HUB_TOKEN"] = hf_val
 
 
 @lru_cache

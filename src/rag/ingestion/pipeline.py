@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from src.core.config import Settings, get_settings
-from src.rag.chunking import ChunkingConfig, DocumentChunk, StructureAwareChunker
+from src.rag.ingestion.chunking import ChunkingConfig, DocumentChunk, StructureAwareChunker
 from src.rag.ingestion.chroma_store import ChromaVectorStore
 from src.rag.ingestion.embedder import SharedEmbedder
 

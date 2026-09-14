@@ -1,5 +1,5 @@
 """
-RAG Context Builder (Phase 6).
+RAG Context Builder.
 Deduplicates, orders, and formats retrieved/reranked chunks into clean, budgeted prompt context.
 """
 
@@ -11,18 +11,13 @@ from typing import Any, Dict, List, Sequence, Union
 from src.rag.reranking.reranker import RerankedResult
 from src.rag.retrieval.retriever import RetrievalResult
 
-
 try:
     from langsmith import traceable
-    from langsmith.run_helpers import get_current_run_tree
 except ImportError:
     def traceable(*args, **kwargs):
         def decorator(fn):
             return fn
         return decorator
-
-    def get_current_run_tree():
-        return None
 
 
 @dataclass
@@ -90,25 +85,35 @@ class ContextBuilder:
                 break
 
             # Deduplicate chunks
-            if chunk.id in seen_ids:
-                continue
-            seen_ids.add(chunk.id)
+            if isinstance(chunk, dict):
+                chunk_id = chunk.get("id") or chunk.get("chunk_id") or f"chunk_{idx}"
+                metadata = chunk.get("metadata") or {}
+                doc_id = chunk.get("source") or chunk.get("document_id") or metadata.get("document_id", "unknown_document")
+                heading_path = chunk.get("section") or metadata.get("heading_path", "")
+                section = chunk.get("section") or metadata.get("section", "")
+                content_type = metadata.get("content_type", "section")
+                text_body = (chunk.get("text") or chunk.get("content") or chunk.get("snippet") or "").strip()
+            else:
+                chunk_id = getattr(chunk, "id", f"chunk_{idx}")
+                metadata = getattr(chunk, "metadata", {}) or {}
+                doc_id = metadata.get("document_id", "unknown_document")
+                heading_path = metadata.get("heading_path", "")
+                section = metadata.get("section", "")
+                content_type = metadata.get("content_type", "section")
+                text_body = getattr(chunk, "text", "").strip()
 
-            metadata = chunk.metadata or {}
-            doc_id = metadata.get("document_id", "unknown_document")
-            heading_path = metadata.get("heading_path", "")
-            section = metadata.get("section", "")
-            content_type = metadata.get("content_type", "section")
+            if chunk_id in seen_ids:
+                continue
+            seen_ids.add(chunk_id)
 
             heading_display = " > ".join(heading_path) if isinstance(heading_path, list) else str(heading_path or section)
-            text_body = chunk.text.strip()
 
             block = (
                 f"--- [SOURCE {len(formatted_blocks) + 1}] ---\n"
                 f"Document: {doc_id}\n"
                 f"Section: {heading_display}\n"
                 f"Content Type: {content_type}\n"
-                f"Chunk ID: {chunk.id}\n\n"
+                f"Chunk ID: {chunk_id}\n\n"
                 f"{text_body}\n"
             )
 

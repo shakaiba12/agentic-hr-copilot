@@ -15,7 +15,7 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 
 from src.core.config import Settings, get_settings
-from src.rag.chunking import DocumentChunk
+from src.rag.ingestion.chunking import DocumentChunk
 
 logger = logging.getLogger(__name__)
 
