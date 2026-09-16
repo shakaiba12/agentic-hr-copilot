@@ -8,6 +8,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 import sqlparse
 from sqlparse.sql import Identifier
 
@@ -34,12 +42,46 @@ class SQLGuardrail:
         r"(?:\.([`\"[]?[a-zA-Z_][\w$]*[`\"]]?))?"
     )
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+        allowed_tables: Optional[set[str] | list[str]] = None,
+        schema_provider: Optional[Any] = None,
+    ) -> None:
         self.settings = settings or get_settings()
-        self._allowed_tables = {t.lower() for t in self.settings.ALLOWED_SQL_TABLES}
+        if allowed_tables is not None:
+            self._allowed_tables = {t.lower() for t in allowed_tables}
+        elif schema_provider is not None and hasattr(schema_provider, "get_table_names"):
+            self._allowed_tables = {t.lower() for t in schema_provider.get_table_names()}
+        else:
+            try:
+                from src.sql.schema_provider import SchemaProvider
+                provider = SchemaProvider()
+                self._allowed_tables = {t.lower() for t in provider.get_table_names()}
+            except Exception:
+                self._allowed_tables = {t.lower() for t in self.settings.ALLOWED_SQL_TABLES}
         self._blocked_keywords = {k.upper() for k in self.settings.BLOCKED_SQL_KEYWORDS}
 
+    @traceable(name="SQLValidation", run_type="chain")
     def validate(self, sql: str) -> SQLGuardrailResult:
+        res = self._perform_validate(sql)
+        try:
+            from langsmith.run_helpers import get_current_run_tree
+            run = get_current_run_tree()
+            if run:
+                run.inputs = {"raw_sql": sql}
+                run.outputs = {
+                    "is_valid": res.is_valid,
+                    "normalized_sql": res.normalized_sql,
+                    "referenced_tables": list(res.referenced_tables),
+                    "violations": list(res.violations),
+                    "notes": res.notes,
+                }
+        except Exception:
+            pass
+        return res
+
+    def _perform_validate(self, sql: str) -> SQLGuardrailResult:
         if not sql or not sql.strip():
             return SQLGuardrailResult(
                 is_valid=False,

@@ -1,0 +1,139 @@
+[
+  {
+    "id": "eval_001",
+    "query": "Who is eligible for health benefits?",
+    "document": "benefits-overview",
+    "relevant_chunk_ids": [
+      "benefits-overview_0003_0b29f49e",
+      "benefits-overview_0001_599a833e",
+      "benefits-overview_0002_34300d85"
+    ]
+  },
+  {
+    "id": "eval_002",
+    "query": "Who can be included as a dependent?",
+    "document": "benefits-overview",
+    "relevant_chunk_ids": [
+      "benefits-overview_0004_d551d682",
+      "benefits-overview_0003_0b29f49e"
+    ]
+  },
+  {
+    "id": "eval_003",
+    "query": "When do health benefits become effective?",
+    "document": "benefits-overview",
+    "relevant_chunk_ids": [
+      "benefits-overview_0039_929a045e",
+      "benefits-overview_0041_e6fdd3d0",
+      "benefits-overview_0002_34300d85"
+    ]
+  },
+  {
+    "id": "eval_004",
+    "query": "What health insurance plans are offered in 2024?",
+    "document": "benefits-overview",
+    "relevant_chunk_ids": [
+      "benefits-overview_0011_46552aa9",
+      "benefits-overview_0013_5e82a839",
+      "benefits-overview_0024_da9a4800"
+    ]
+  },
+  {
+    "id": "eval_005",
+    "query": "How do I submit an expense reimbursement?",
+    "document": "home-office-and-stipends",
+    "relevant_chunk_ids": [
+      "home-office-and-stipends_0001_b39292d5",
+      "home-office-and-stipends_0027_65037ac2"
+    ]
+  },
+  {
+    "id": "eval_006",
+    "query": "What is the annual home office stipend amount?",
+    "document": "home-office-and-stipends",
+    "relevant_chunk_ids": [
+      "home-office-and-stipends_0027_65037ac2",
+      "home-office-and-stipends_0028_83c8b038"
+    ]
+  },
+  {
+    "id": "eval_007",
+    "query": "Can I get reimbursed for a desk or monitor for remote work?",
+    "document": "home-office-and-stipends",
+    "relevant_chunk_ids": [
+      "home-office-and-stipends_0006_637d3920",
+      "home-office-and-stipends_0001_b39292d5"
+    ]
+  },
+  {
+    "id": "eval_008",
+    "query": "What is the minimum recommended annual PTO for rest?",
+    "document": "time-off-policy",
+    "relevant_chunk_ids": [
+      "time-off-policy_0003_72aea9c6"
+    ]
+  },
+  {
+    "id": "eval_009",
+    "query": "How do I record PTO in Deel?",
+    "document": "time-off-policy",
+    "relevant_chunk_ids": [
+      "time-off-policy_0002_68d69357",
+      "time-off-policy_0013_bcca87c3"
+    ]
+  },
+  {
+    "id": "eval_010",
+    "query": "What approval is required for PTO exceeding 10 consecutive business days?",
+    "document": "time-off-policy",
+    "relevant_chunk_ids": [
+      "time-off-policy_0008_c439cae6",
+      "time-off-policy_0005_4d7177e6"
+    ]
+  },
+  {
+    "id": "eval_011",
+    "query": "How many weeks of paid parental leave are provided?",
+    "document": "parental-leave",
+    "relevant_chunk_ids": [
+      "parental-leave_0005_e694f4bb",
+      "parental-leave_0056_8e73d187"
+    ]
+  },
+  {
+    "id": "eval_012",
+    "query": "Who is eligible for paid parental leave?",
+    "document": "parental-leave",
+    "relevant_chunk_ids": [
+      "parental-leave_0060_d9bd2915",
+      "parental-leave_0005_e694f4bb"
+    ]
+  },
+  {
+    "id": "eval_013",
+    "query": "How far in advance must I notify my manager before parental leave?",
+    "document": "parental-leave",
+    "relevant_chunk_ids": [
+      "parental-leave_0012_6be3a3b8",
+      "parental-leave_0007_80ee9b86"
+    ]
+  },
+  {
+    "id": "eval_014",
+    "query": "What is the code of conduct policy on gifts and entertainment?",
+    "document": "code-of-conduct",
+    "relevant_chunk_ids": [
+      "code-of-conduct_0037_20a2b050",
+      "code-of-conduct_0040_153b9986"
+    ]
+  },
+  {
+    "id": "eval_015",
+    "query": "How do I report harassment or code of conduct violations?",
+    "document": "code-of-conduct",
+    "relevant_chunk_ids": [
+      "code-of-conduct_0061_34cdedb5",
+      "code-of-conduct_0016_c68b8411"
+    ]
+  }
+]
