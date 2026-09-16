@@ -148,8 +148,10 @@ class SQLState(TypedDict, total=False):
     generated_sql: Optional[str]
     is_sql_valid: Optional[bool]
     sql_validation_notes: Optional[str]
+    sql_validation_result: Optional[Any]
     sql_data: Optional[List[Dict[str, Any]]]
     sql_row_count: Optional[int]
+    sql_execution_result: Optional[Any]
     sql_retry_count: int
     sql_error: Optional[str]
     sql_output: Optional[Dict[str, Any]]

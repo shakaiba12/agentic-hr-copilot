@@ -132,3 +132,49 @@ body {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
 }
+
+/* Markdown table styling */
+.prose-dark table {
+  width: 100%;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background-color: rgba(0, 0, 0, 0.25);
+}
+
+.prose-dark thead {
+  background-color: rgba(13, 19, 31, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.prose-dark th {
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  text-align: left;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.prose-dark td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.prose-dark tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.prose-dark tbody tr:hover {
+  background-color: rgba(6, 182, 212, 0.04);
+}
+

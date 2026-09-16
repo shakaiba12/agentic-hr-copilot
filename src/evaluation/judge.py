@@ -14,10 +14,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from src.core.config import get_settings
 from src.core.llm import get_llm
 from src.evaluation.prompts import (
+    HYBRID_JUDGE_SYSTEM_PROMPT,
     RAG_JUDGE_SYSTEM_PROMPT,
     SQL_JUDGE_SYSTEM_PROMPT,
 )
 from src.evaluation.schemas import (
+    HybridJudgeInput,
     JudgeDecision,
     RAGJudgeInput,
     SQLJudgeInput,
@@ -196,6 +198,71 @@ class LLMJudge:
                 reason=f"Judge evaluation unavailable: {exc}",
                 latency_ms=elapsed,
             )
+
+    @traceable(name="LLM_Judge_Hybrid", run_type="chain")
+    def evaluate_hybrid(self, input_data: HybridJudgeInput) -> JudgeDecision:
+        """
+        Evaluate a hybrid answer against both structured SQL results and retrieved policy documents.
+        """
+        if not self.settings.ENABLE_LLM_JUDGE:
+            return JudgeDecision(
+                passed=True,
+                score=1.0,
+                verdict_status=VerdictStatus.SKIPPED,
+                reason="LLM judge disabled in configuration.",
+            )
+
+        start_time = time.perf_counter()
+        try:
+            formatted_docs = self._format_retrieved_docs(input_data.retrieved_docs)
+            formatted_history = self._format_history(input_data.history)
+            formatted_sql_result = self._format_sql_result(input_data.sql_result)
+
+            user_prompt = (
+                f"USER QUESTION:\n{input_data.question}\n\n"
+                f"{formatted_history}"
+                f"GENERATED SQL QUERY:\n{input_data.sql}\n\n"
+                f"ACTUAL SQL EXECUTION RESULT:\n{formatted_sql_result}\n\n"
+                f"RETRIEVED POLICY SOURCE DOCUMENTS:\n{formatted_docs}\n\n"
+                f"GENERATED HYBRID ANSWER TO EVALUATE:\n{input_data.answer}\n\n"
+                "Please output your evaluation JSON object now:"
+            )
+
+            messages = [
+                SystemMessage(content=HYBRID_JUDGE_SYSTEM_PROMPT),
+                HumanMessage(content=user_prompt),
+            ]
+
+            response = self.llm.invoke(messages)
+            raw_content = response.content if hasattr(response, "content") else str(response)
+            decision = self._parse_judge_json(
+                raw_content,
+                question=input_data.question,
+                context_text=f"{formatted_sql_result}\n{formatted_docs}",
+                answer_text=input_data.answer,
+            )
+            decision.latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+            if decision.score < self.threshold or decision.contradiction or not decision.grounded:
+                decision.passed = False
+
+            logger.info(
+                f"Hybrid Judge evaluation finished: passed={decision.passed}, "
+                f"score={decision.score}, latency={decision.latency_ms}ms"
+            )
+            return decision
+
+        except Exception as exc:
+            elapsed = round((time.perf_counter() - start_time) * 1000, 2)
+            logger.warning(f"LLM Hybrid Judge evaluation failed or timed out: {exc}")
+            return JudgeDecision(
+                passed=True,
+                score=1.0,
+                verdict_status=VerdictStatus.JUDGE_UNAVAILABLE,
+                reason=f"Judge evaluation unavailable: {exc}",
+                latency_ms=elapsed,
+            )
+
 
     def _parse_judge_json(self, raw_content: str, question: str = "", context_text: str = "", answer_text: str = "") -> JudgeDecision:
         """Extract and parse structured JSON verdict from model response."""

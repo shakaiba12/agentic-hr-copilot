@@ -58,6 +58,7 @@ class SQLPipeline:
         guardrail: Optional[SQLGuardrail] = None,
         executor: Optional[SQLExecutor] = None,
         judge: Optional[LLMJudge] = None,
+        presenter: Optional[Any] = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.schema_provider = schema_provider or SchemaProvider()
@@ -65,6 +66,7 @@ class SQLPipeline:
         self.guardrail = guardrail or SQLGuardrail(self.settings)
         self.executor = executor or SQLExecutor()
         self.judge = judge or LLMJudge()
+        self.presenter = presenter
         self._schema_context = self.schema_provider.get_full_schema()
 
         self._builder = SQLGraphBuilder(
@@ -73,6 +75,7 @@ class SQLPipeline:
             generator=self.generator,
             guardrail=self.guardrail,
             executor=self.executor,
+            presenter=self.presenter,
         )
         self.graph = self._builder.build_graph()
         self.workflow = self.graph.compile()

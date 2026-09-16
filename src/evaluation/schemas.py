@@ -134,3 +134,25 @@ class SQLJudgeInput(BaseModel):
         if "answer" in data and not isinstance(data["answer"], str):
             data["answer"] = str(data["answer"])
         super().__init__(**data)
+
+
+class HybridJudgeInput(BaseModel):
+    """Input payload provided to the Hybrid LLM Judge."""
+    model_config = {"arbitrary_types_allowed": True}
+
+    question: str
+    sql: str = ""
+    sql_result: Any = None
+    retrieved_docs: List[Dict[str, Any]] = Field(default_factory=list)
+    answer: str
+    history: Optional[List[Dict[str, Any]]] = None
+
+    def __init__(self, **data: Any):
+        if "question" in data and not isinstance(data["question"], str):
+            data["question"] = str(data["question"])
+        if "sql" in data and not isinstance(data["sql"], str):
+            data["sql"] = str(data["sql"])
+        if "answer" in data and not isinstance(data["answer"], str):
+            data["answer"] = str(data["answer"])
+        super().__init__(**data)
+

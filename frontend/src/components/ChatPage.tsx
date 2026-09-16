@@ -15,9 +15,6 @@ import {
 import { ChatMessage, HealthStatus, PolicyDocument, ConversationSummary } from '../types/api';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
-import { DataTable } from './DataTable';
-import { KpiCard } from './KpiCard';
-import { SqlViewer } from './SqlViewer';
 import { SourceCard } from './SourceCard';
 
 interface ChatPageProps {
@@ -145,13 +142,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     onSendMessage(query);
   };
 
-  // Helper to decide if an SQL result is a single scalar metric suitable for a KPI card
-  const isKpiCandidate = (rows?: Array<Record<string, unknown>>) => {
-    if (!rows || rows.length !== 1) return false;
-    const row = rows[0];
-    const keys = Object.keys(row);
-    return keys.length <= 3 && keys.some((k) => /count|total|avg|sum|max|min|percentage/i.test(k) || typeof row[k] === 'number');
-  };
+
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#132237] via-[#070b12] to-[#05070b] text-slate-100 flex flex-col">
@@ -286,28 +277,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({
                                 className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded ${
                                   isUser
                                     ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/30'
-                                    : m.source === 'sql'
-                                    ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-400/40'
-                                    : m.source === 'rag'
-                                    ? 'bg-violet-950/80 text-violet-300 border border-violet-400/40'
                                     : 'bg-white/[0.05] text-slate-300 border border-white/10'
                                 }`}
                               >
-                                {isUser
-                                  ? 'You'
-                                  : m.source === 'sql'
-                                  ? 'DATA ANALYSIS'
-                                  : m.source === 'rag'
-                                  ? 'POLICY KNOWLEDGE'
-                                  : 'HR ASSISTANT'}
+                                {isUser ? 'You' : 'HR ASSISTANT'}
                               </span>
-
-                              {/* Target / Allowed Badge */}
-                              {!isUser && m.decision && (
-                                <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
-                                  {m.decision.category}
-                                </span>
-                              )}
                             </div>
 
                             <span className="text-[10px] text-slate-500">{m.timestamp}</span>
@@ -330,26 +304,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({
                           {/* Pulsing cursor during streaming */}
                           {showCursor && (
                             <span className="ml-1 inline-block h-3.5 w-1 animate-pulse rounded bg-cyan-300 align-middle" />
-                          )}
-
-                          {/* Structured SQL Results: KPI or Table */}
-                          {!isUser && m.sql_result && m.sql_result.rows && m.sql_result.rows.length > 0 && (
-                            <div className="mt-3">
-                              {isKpiCandidate(m.sql_result.rows) ? (
-                                <KpiCard data={m.sql_result.rows[0]} />
-                              ) : (
-                                <DataTable
-                                  rows={m.sql_result.rows}
-                                  rowCount={m.sql_result.row_count}
-                                  wasTruncated={m.sql_result.was_truncated}
-                                />
-                              )}
-                            </div>
-                          )}
-
-                          {/* Generated SQL Collapsible */}
-                          {!isUser && m.sql_result?.generated_sql && (
-                            <SqlViewer sql={m.sql_result.generated_sql} />
                           )}
 
                           {/* RAG Citations Collapsible */}

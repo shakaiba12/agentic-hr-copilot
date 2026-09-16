@@ -9,7 +9,7 @@ import os
 import re
 import time
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Generator, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional, Union
 from urllib.parse import urlsplit, urlunsplit
 
 try:
@@ -199,4 +199,112 @@ def record_trace_error(error: Union[str, Exception]) -> None:
             run.metadata["error"] = err_msg
     except Exception as e:
         logger.debug(f"Could not record trace error: {e}")
+
+
+_BLOCKED_CATEGORY_TAGS = {
+    "PROMPT_INJECTION": "prompt-injection",
+    "DESTRUCTIVE_ACTION": "destructive-action",
+}
+
+_ALLOWED_CATEGORY_TAGS = {
+    "RAG_KNOWLEDGE": ["rag", "llm-judge"],
+    "DATA_QUERY": ["sql", "llm-judge"],
+}
+
+
+def build_trace_tags(decision: Any) -> List[str]:
+    """Construct observability tags based on routing decision and safety status."""
+    pipeline_name = getattr(decision, "target", None) or "master"
+    cat = getattr(decision, "category", None)
+    cat_name = cat.name if hasattr(cat, "name") else str(cat)
+    cat_val = cat.value.lower() if hasattr(cat, "value") else str(cat).lower()
+    tags = [pipeline_name, cat_val]
+
+    allowed = getattr(decision, "allowed", True)
+    if not allowed:
+        tags.extend(["guardrail", "blocked"])
+        blocked_tag = _BLOCKED_CATEGORY_TAGS.get(cat_name)
+        if blocked_tag:
+            tags.append(blocked_tag)
+        return tags
+
+    allowed_tags = _ALLOWED_CATEGORY_TAGS.get(cat_name)
+    if allowed_tags:
+        tags.extend(allowed_tags)
+    return tags
+
+
+def update_trace_request(
+    query: str,
+    session_id: str,
+    request_id: str,
+    timestamp: str,
+    environment: str = "development",
+    provider: str = "gemini",
+    model: str = "gemini-2.5-flash",
+) -> None:
+    """Initialize root request span with user input and session metadata."""
+    try:
+        run = get_current_run_tree()
+        if not run:
+            return
+        run.inputs = {"user_query": query}
+        meta = {
+            "session_id": session_id,
+            "request_id": request_id,
+            "timestamp": timestamp,
+            "environment": environment,
+            "provider": provider,
+            "model": model,
+        }
+        if hasattr(run, "metadata") and isinstance(run.metadata, dict):
+            run.metadata.update(sanitize_metadata(meta))
+        if not hasattr(run, "tags") or not run.tags:
+            run.tags = ["hr-assistant"]
+        elif "hr-assistant" not in run.tags:
+            run.tags.append("hr-assistant")
+    except Exception as e:
+        logger.debug(f"Could not update trace request: {e}")
+
+
+def record_root_trace(
+    decision: Any,
+    response_text: str,
+    status: str = "success",
+    latency_ms: Optional[float] = None,
+    judge_decision: Optional[Any] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Record root trace completion outputs and status."""
+    try:
+        run = get_current_run_tree()
+        if not run:
+            return
+        cat_val = decision.category.value if hasattr(decision.category, "value") else str(decision.category)
+        target_val = getattr(decision, "target", None)
+        allowed_val = getattr(decision, "allowed", True)
+
+        out_dict: Dict[str, Any] = {
+            "category": cat_val,
+            "target": target_val,
+            "response": response_text,
+            "allowed": allowed_val,
+            "status": status,
+        }
+        if latency_ms is not None:
+            out_dict["total_latency_ms"] = latency_ms
+        if error:
+            out_dict["error"] = error
+        if judge_decision:
+            out_dict["judge_passed"] = getattr(judge_decision, "passed", None)
+            out_dict["judge_score"] = getattr(judge_decision, "score", None)
+
+        run.outputs = sanitize_metadata(out_dict)
+        if hasattr(run, "metadata") and isinstance(run.metadata, dict):
+            run.metadata["status"] = status
+            if latency_ms is not None:
+                run.metadata["total_latency_ms"] = latency_ms
+    except Exception as e:
+        logger.debug(f"Could not record root trace: {e}")
+
 

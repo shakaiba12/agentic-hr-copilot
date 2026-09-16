@@ -1,9 +1,8 @@
 """
 Master Orchestrator and Query Gate built with LangGraph.
-Dispatches queries across Input Guardrails, QueryRouter, SQL Agent Subgraph, RAG Agent Subgraph,
-Answer Synthesis, LLM Judge, Regeneration, and Output Guardrails in a structured StateGraph.
+Coordinates Input Guardrails, QueryRouter, SQL/RAG Pipelines, Hybrid Synthesis,
+LLM Judge, Regeneration, and Output Guardrails in a streamlined StateGraph.
 """
-
 from __future__ import annotations
 
 import logging
@@ -17,120 +16,52 @@ from langgraph.graph import END, START, StateGraph
 
 try:
     from langsmith import traceable
-    from langsmith.run_helpers import get_current_run_tree
 except ImportError:
     def traceable(*args, **kwargs):
         def decorator(fn):
             return fn
         return decorator
 
-    def get_current_run_tree():
-        return None
-
 from src.core.config import Settings, get_settings
-from src.core.llm import get_llm
+from src.core.observability import (
+    build_trace_tags,
+    record_root_trace,
+    update_trace_request,
+)
 from src.core.router import QueryRouter, RouteCategory, RouteDecision
-from src.core.state import AgentState, IntentType
+from src.core.routing import (
+    CATEGORY_TO_INTENT,
+    DEFAULT_FALLBACK_ANSWER,
+    INTENT_FALLBACK_ROUTES,
+    INTENT_ROUTES,
+    STATIC_CATEGORY_RESPONSES,
+)
+from src.core.state import AgentState, IntentType, SQLState
+from src.core.synthesis import ConversationalResponseHandler, HybridSynthesizer
 from src.evaluation.judge import LLMJudge
-from src.evaluation.schemas import JudgeDecision, RAGJudgeInput, SQLJudgeInput, VerdictStatus
+from src.evaluation.schemas import (
+    HybridJudgeInput,
+    JudgeDecision,
+    RAGJudgeInput,
+    SQLJudgeInput,
+    VerdictStatus,
+)
+
 from src.guardrails.input_guardrail import InputGuardrail, InputGuardrailResult
 from src.guardrails.output_guardrail import OutputGuardrail, OutputGuardrailResult
 from src.rag.graph import get_compiled_rag_graph
 from src.rag.pipeline import RAGPipeline, RAGPipelineResult
+from src.rag.state import RAGState
+from src.rag.utils import normalize_rag_sources
 from src.sql.graph import get_compiled_sql_graph
 from src.sql.pipeline import SQLPipeline, SQLPipelineResult
 
 logger = logging.getLogger(__name__)
 
-INTENT_ROUTES: Dict[IntentType, str] = {
-    IntentType.SQL_ONLY: "sql_agent",
-    IntentType.RAG_ONLY: "rag_agent",
-    IntentType.HYBRID: "sql_agent",
-    IntentType.CASUAL: "answer_synthesis",
-    IntentType.UNKNOWN: "answer_synthesis",
-}
-
-CATEGORY_TO_INTENT: Dict[RouteCategory, tuple[IntentType, str]] = {
-    RouteCategory.DATA_QUERY: (IntentType.SQL_ONLY, "sql"),
-    RouteCategory.RAG_KNOWLEDGE: (IntentType.RAG_ONLY, "rag"),
-    RouteCategory.CASUAL: (IntentType.CASUAL, "master"),
-    RouteCategory.GENERAL: (IntentType.CASUAL, "master"),
-    RouteCategory.OUT_OF_SCOPE: (IntentType.CASUAL, "master"),
-}
-
-INTENT_FALLBACK_ROUTES: Dict[Optional[IntentType], tuple[RouteCategory, Optional[str]]] = {
-    IntentType.SQL_ONLY: (RouteCategory.DATA_QUERY, "data_specialist"),
-    IntentType.RAG_ONLY: (RouteCategory.RAG_KNOWLEDGE, "rag"),
-    IntentType.CASUAL: (RouteCategory.CASUAL, None),
-}
-
-STATIC_CATEGORY_RESPONSES: Dict[RouteCategory, str] = {
-    RouteCategory.CASUAL: (
-        "Hello! I am your Enterprise HR Intelligence Assistant. "
-        "I can help with company HR policies, benefits, leave, expenses, and employee information. "
-        "How can I help you today?"
-    ),
-    RouteCategory.OUT_OF_SCOPE: (
-        "I'm designed to help with company HR policies, employee information, "
-        "benefits, leave, expenses, and related workplace questions. "
-        "Your query falls outside of approved enterprise documentation."
-    ),
-}
-
-DEFAULT_FALLBACK_ANSWER = (
-    "I could not determine the specific enterprise department for this question. "
-    "Please ask about company HR policies, benefits, leave, or employee counts."
-)
-
-
-def _normalize_rag_sources(sources: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Extract normalized chunk dictionaries and citation IDs from pipeline sources."""
-    if not isinstance(sources, list):
-        return [], []
-
-    chunks_payload: List[Dict[str, Any]] = []
-    citations: List[str] = []
-
-    for s in sources:
-        if isinstance(s, dict):
-            chunks_payload.append({
-                "text": s.get("content") or s.get("snippet") or s.get("text", ""),
-                "source": s.get("document_id") or s.get("source", "Unknown"),
-                "section": s.get("section") or "General",
-                "score": s.get("score"),
-            })
-            doc_id = s.get("document_id")
-            if doc_id:
-                citations.append(str(doc_id))
-        elif isinstance(s, str):
-            chunks_payload.append({
-                "text": "",
-                "source": s,
-                "section": "General",
-            })
-
-    return chunks_payload, citations
-
-
-def _build_trace_tags(decision: RouteDecision) -> List[str]:
-    """Construct observability tags based on routing decision and safety status."""
-    pipeline_name = decision.target or "master"
-    tags = [pipeline_name, decision.category.value.lower()]
-    if not decision.allowed:
-        tags.extend(["guardrail", "blocked"])
-        if decision.category == RouteCategory.PROMPT_INJECTION:
-            tags.append("prompt-injection")
-        elif decision.category == RouteCategory.DESTRUCTIVE_ACTION:
-            tags.append("destructive-action")
-    elif decision.category == RouteCategory.RAG_KNOWLEDGE:
-        tags.extend(["rag", "llm-judge"])
-    elif decision.category == RouteCategory.DATA_QUERY:
-        tags.extend(["sql", "llm-judge"])
-    return tags
-
 
 @dataclass
 class OrchestratorResponse:
+    """Structured response object returned by MasterOrchestrator."""
     decision: RouteDecision
     source: str
     response: str
@@ -142,6 +73,11 @@ class OrchestratorResponse:
 
 
 class MasterOrchestrator:
+    """
+    Thin Orchestration Layer coordinating guardrails, router, subgraphs,
+    hybrid synthesis, and evaluation judge.
+    """
+
     def __init__(
         self,
         router: Optional[QueryRouter] = None,
@@ -164,26 +100,20 @@ class MasterOrchestrator:
         self.output_guardrail = output_guardrail or OutputGuardrail(self.settings)
         self.judge = judge or LLMJudge()
 
-        # Connect executable subgraphs directly
-        self.sql_workflow = getattr(self.sql_pipeline, "workflow", None) or get_compiled_sql_graph(
-            settings=self.settings,
-            schema_provider=getattr(self.sql_pipeline, "schema_provider", None),
-            generator=getattr(self.sql_pipeline, "generator", None),
-            guardrail=getattr(self.sql_pipeline, "guardrail", None),
-            executor=getattr(self.sql_pipeline, "executor", None),
-        )
+        # Dedicated synthesis and conversational delegates
+        self.hybrid_synthesizer = HybridSynthesizer()
+        self.conversational_handler = ConversationalResponseHandler()
 
-        self.rag_workflow = getattr(self.rag_pipeline, "workflow", None) or get_compiled_rag_graph(
-            settings=self.settings,
-            retriever=getattr(self.rag_pipeline, "retriever", None),
-            context_builder=getattr(self.rag_pipeline, "context_builder", None),
-            generator=getattr(self.rag_pipeline, "generator", None),
-        )
+        # Compiled subgraphs composed into master orchestrator
+        self.sql_workflow = getattr(self.sql_pipeline, "workflow", None) or get_compiled_sql_graph(settings=self.settings)
+        self.rag_workflow = getattr(self.rag_pipeline, "workflow", None) or get_compiled_rag_graph(settings=self.settings)
 
+        # Build and compile master state graph
         self.graph = self._build_graph()
         self.workflow = self.graph.compile()
 
     def input_guardrail_node(self, state: AgentState) -> Dict[str, Any]:
+        """Node 1: Deterministic safety validation and sanitization."""
         raw_query = state.get("query", "")
         guard_res: InputGuardrailResult = self.input_guardrail.check(raw_query)
 
@@ -217,6 +147,7 @@ class MasterOrchestrator:
         return updates
 
     def intent_router_node(self, state: AgentState) -> Dict[str, Any]:
+        """Node 2: Semantic and heuristic query intent classification."""
         if state.get("is_input_safe") is False:
             return {}
 
@@ -265,33 +196,42 @@ class MasterOrchestrator:
         return updates
 
     def sql_agent_node(self, state: AgentState) -> Dict[str, Any]:
-        """Executes the SQL Agent Subgraph via pipeline façade."""
+        """Node 3A: Directly executes compiled SQL Agent LangGraph Subgraph."""
         query = state.get("sanitized_query") or state.get("query", "")
 
         try:
-            sql_res: SQLPipelineResult = self.sql_pipeline.handle(query)
+            schema_context = (
+                getattr(self.sql_pipeline, "_schema_context", None)
+                or getattr(getattr(self.sql_pipeline, "schema_provider", None), "get_full_schema", lambda: "")()
+            )
+            sql_input: SQLState = {
+                "query": query,
+                "sanitized_query": query,
+                "chat_history": state.get("chat_history"),
+                "sql_retry_count": 0,
+                "db_schema_context": schema_context,
+            }
+
+            final_sql_state: SQLState = self.sql_workflow.invoke(sql_input)
+            sql_res: Optional[SQLPipelineResult] = final_sql_state.get("sql_result")
+            sql_out = final_sql_state.get("sql_output") or {}
 
             updates: Dict[str, Any] = {
                 "sql_result": sql_res,
-                "sql_output": {
-                    "success": sql_res.success,
-                    "generated_sql": sql_res.generated_sql,
-                    "rows": sql_res.rows,
-                    "row_count": sql_res.row_count,
-                    "message": sql_res.message,
-                    "error": sql_res.error,
-                },
-                "generated_sql": sql_res.generated_sql,
-                "sql_data": sql_res.rows,
-                "sql_row_count": sql_res.row_count,
-                "is_sql_valid": sql_res.validation.is_valid if sql_res.validation else sql_res.success,
+                "sql_output": sql_out,
+                "generated_sql": final_sql_state.get("generated_sql"),
+                "sql_data": final_sql_state.get("sql_data", []),
+                "sql_row_count": final_sql_state.get("sql_row_count", 0),
+                "is_sql_valid": final_sql_state.get("is_sql_valid", False),
             }
 
             if state.get("intent") == IntentType.SQL_ONLY:
-                updates["candidate_answer"] = sql_res.message
+                updates["candidate_answer"] = final_sql_state.get("candidate_answer", "")
                 updates["source"] = "sql"
 
-            if not sql_res.success and sql_res.error:
+            if final_sql_state.get("errors"):
+                updates["errors"] = final_sql_state.get("errors")
+            elif sql_res and not sql_res.success and sql_res.error:
                 updates["errors"] = [sql_res.error]
 
             return updates
@@ -304,32 +244,36 @@ class MasterOrchestrator:
             }
 
     def rag_agent_node(self, state: AgentState) -> Dict[str, Any]:
-        """Executes the RAG Agent Subgraph via pipeline façade."""
+        """Node 3B: Directly executes compiled RAG Agent LangGraph Subgraph."""
         query = state.get("sanitized_query") or state.get("query", "")
 
         try:
-            rag_res: RAGPipelineResult = self.rag_pipeline.handle(query)
-            chunks_payload, citations = _normalize_rag_sources(rag_res.sources)
+            rag_input: RAGState = {
+                "query": query,
+                "sanitized_query": query,
+                "chat_history": state.get("chat_history"),
+            }
+
+            final_rag_state: RAGState = self.rag_workflow.invoke(rag_input)
+            rag_res: Optional[RAGPipelineResult] = final_rag_state.get("rag_result")
+            rag_out = final_rag_state.get("rag_output") or {}
+            retrieved_chunks = final_rag_state.get("retrieved_chunks", [])
+            citations = final_rag_state.get("citations", [])
 
             updates: Dict[str, Any] = {
                 "rag_result": rag_res,
-                "rag_output": {
-                    "success": rag_res.success,
-                    "response": rag_res.response,
-                    "sources": rag_res.sources,
-                    "chunks_count": rag_res.chunks_count,
-                    "grounded": rag_res.grounded,
-                    "error": rag_res.error,
-                },
-                "retrieved_chunks": chunks_payload,
+                "rag_output": rag_out,
+                "retrieved_chunks": retrieved_chunks,
                 "citations": citations,
             }
 
             if state.get("intent") == IntentType.RAG_ONLY:
-                updates["candidate_answer"] = rag_res.response
+                updates["candidate_answer"] = final_rag_state.get("candidate_answer", "")
                 updates["source"] = "rag"
 
-            if not rag_res.success and rag_res.error:
+            if final_rag_state.get("errors"):
+                updates["errors"] = final_rag_state.get("errors")
+            elif rag_res and not rag_res.success and rag_res.error:
                 updates["errors"] = [rag_res.error]
 
             return updates
@@ -343,57 +287,71 @@ class MasterOrchestrator:
             }
 
     def answer_synthesis_node(self, state: AgentState) -> Dict[str, Any]:
+        """Node 4: Synthesizes responses for HYBRID, CASUAL, and GENERAL queries."""
         intent = state.get("intent")
         query = state.get("sanitized_query") or state.get("query", "")
         decision: Optional[RouteDecision] = state.get("route_decision")
 
+        # Non-hybrid candidate answer already populated by specialist agent
         if state.get("candidate_answer") and intent not in (IntentType.HYBRID, None):
             return {"candidate_answer": state["candidate_answer"]}
 
+        # Parallel fan-in synthesis for HYBRID queries
         if intent == IntentType.HYBRID:
             sql_out = state.get("sql_output") or {}
             rag_out = state.get("rag_output") or {}
-            sql_msg = sql_out.get("message", "")
-            rag_msg = rag_out.get("response", "")
-            synth = (
-                f"{sql_msg}\n\n{rag_msg}"
-                if sql_msg and rag_msg
-                else (sql_msg or rag_msg or "No data available for hybrid query.")
+            synth_text = self.hybrid_synthesizer.synthesize(
+                query=query,
+                sql_data=state.get("sql_data") or [],
+                retrieved_chunks=state.get("retrieved_chunks") or [],
+                sql_success=bool(sql_out.get("success", True)),
+                rag_success=bool(rag_out.get("success", True)),
+                sql_msg=sql_out.get("message", ""),
+                rag_msg=rag_out.get("response", ""),
             )
-            return {"candidate_answer": synth, "source": "hybrid"}
+            return {"candidate_answer": synth_text, "source": "hybrid"}
 
-        cat = decision.category if decision else RouteCategory.CASUAL
+        # Conversational, Casual, or Fallback handling
+        category = decision.category if decision else RouteCategory.CASUAL
+        response_text = self.conversational_handler.respond(query=query, category=category)
+        return {"candidate_answer": response_text, "source": "master"}
 
-        # Dynamically generate natural conversational responses using LLM
-        try:
-            llm_client = get_llm(temperature=0.3)
-            prompt = (
-                f"You are PeopleQuery AI, an Enterprise HR Intelligence Copilot. "
-                f"You specialize in company HR policies, employee records, benefits, and workplace guidelines.\n\n"
-                f"User Query: \"{query}\"\n\n"
-                f"Please provide a warm, helpful, and concise response to the user."
+    def _evaluate_hybrid_judge(self, query: str, candidate: str, state: AgentState) -> JudgeDecision:
+        return self.judge.evaluate_hybrid(
+            HybridJudgeInput(
+                question=query,
+                sql=state.get("generated_sql", "") or "",
+                sql_result=state.get("sql_data", []) or [],
+                retrieved_docs=state.get("retrieved_chunks", []) or [],
+                answer=candidate,
+                history=state.get("chat_history"),
             )
-            llm_res = llm_client.invoke(prompt)
-            answer_text = (llm_res.content if hasattr(llm_res, "content") else str(llm_res)).strip()
-            if answer_text:
-                return {"candidate_answer": answer_text, "source": "master"}
-        except Exception as e:
-            logger.debug("Dynamic answer synthesis fallback skipped: %s", e)
+        )
 
-        if cat in STATIC_CATEGORY_RESPONSES:
-            return {"candidate_answer": STATIC_CATEGORY_RESPONSES[cat], "source": "master"}
-
-        if cat == RouteCategory.GENERAL:
-            resp_text = (
-                f"This question was handled as a general inquiry: '{query}'. "
-                "I specialize in enterprise HR policies and company data."
+    def _evaluate_rag_judge(self, query: str, candidate: str, state: AgentState) -> JudgeDecision:
+        return self.judge.evaluate_rag(
+            RAGJudgeInput(
+                question=query,
+                answer=candidate,
+                retrieved_docs=state.get("retrieved_chunks", []) or [],
+                history=state.get("chat_history"),
             )
-            return {"candidate_answer": resp_text, "source": "master"}
+        )
 
-        return {"candidate_answer": DEFAULT_FALLBACK_ANSWER, "source": "master"}
+    def _evaluate_sql_judge(self, query: str, candidate: str, state: AgentState) -> JudgeDecision:
+        return self.judge.evaluate_sql(
+            SQLJudgeInput(
+                question=query,
+                sql=state.get("generated_sql", "") or "",
+                sql_result=state.get("sql_data", []) or [],
+                answer=candidate,
+                history=state.get("chat_history"),
+            )
+        )
 
     def llm_judge_node(self, state: AgentState) -> Dict[str, Any]:
-        """Single Central LLM Judge owned by the master graph."""
+        """Node 5: Central LLM Judge evaluating answer quality and grounding."""
+        # Guard clause: skip judging for unsafe, casual, or judge-disabled queries
         if (
             state.get("is_input_safe") is False
             or state.get("intent") in (IntentType.CASUAL, IntentType.UNKNOWN)
@@ -420,26 +378,16 @@ class MasterOrchestrator:
         query = state.get("sanitized_query") or state.get("query", "")
         candidate = state.get("candidate_answer", "")
 
+        judge_dispatch = {
+            IntentType.HYBRID: self._evaluate_hybrid_judge,
+            IntentType.RAG_ONLY: self._evaluate_rag_judge,
+            IntentType.SQL_ONLY: self._evaluate_sql_judge,
+        }
+
         try:
-            if intent in (IntentType.RAG_ONLY, IntentType.HYBRID):
-                decision = self.judge.evaluate_rag(
-                    RAGJudgeInput(
-                        question=query,
-                        answer=candidate,
-                        retrieved_docs=state.get("retrieved_chunks", []) or [],
-                        history=state.get("chat_history"),
-                    )
-                )
-            elif intent == IntentType.SQL_ONLY:
-                decision = self.judge.evaluate_sql(
-                    SQLJudgeInput(
-                        question=query,
-                        sql=state.get("generated_sql", "") or "",
-                        sql_result=state.get("sql_data", []) or [],
-                        answer=candidate,
-                        history=state.get("chat_history"),
-                    )
-                )
+            evaluator = judge_dispatch.get(intent)
+            if evaluator:
+                decision = evaluator(query, candidate, state)
             else:
                 decision = JudgeDecision(
                     passed=True,
@@ -467,8 +415,56 @@ class MasterOrchestrator:
             },
         }
 
+    def _regenerate_rag(
+        self,
+        query: str,
+        candidate: str,
+        feedback: str,
+        history: Optional[List[Any]],
+        state: AgentState,
+    ) -> Optional[str]:
+        generator = getattr(self.rag_pipeline, "generator", None)
+        context_builder = getattr(self.rag_pipeline, "context_builder", None)
+        if not (generator and hasattr(generator, "regenerate") and context_builder):
+            return None
+
+        chunks = state.get("retrieved_chunks") or []
+        formatted_ctx = context_builder.build_context(chunks)
+        if not formatted_ctx:
+            return None
+
+        regen_res = generator.regenerate(
+            query=query,
+            formatted_context=formatted_ctx,
+            previous_answer=candidate,
+            judge_feedback=feedback,
+            history=history,
+        )
+        return regen_res.answer if hasattr(regen_res, "answer") else str(regen_res)
+
+    def _regenerate_hybrid(
+        self,
+        query: str,
+        candidate: str,
+        feedback: str,
+        history: Optional[List[Any]],
+        state: AgentState,
+    ) -> Optional[str]:
+        sql_out = state.get("sql_output") or {}
+        rag_out = state.get("rag_output") or {}
+        return self.hybrid_synthesizer.regenerate(
+            query=query,
+            sql_data=state.get("sql_data") or [],
+            retrieved_chunks=state.get("retrieved_chunks") or [],
+            sql_success=bool(sql_out.get("success", True)),
+            rag_success=bool(rag_out.get("success", True)),
+            sql_msg=sql_out.get("message", ""),
+            rag_msg=rag_out.get("response", ""),
+            judge_feedback=feedback,
+        )
+
     def regeneration_node(self, state: AgentState) -> Dict[str, Any]:
-        """Bounded regeneration node re-invoking generator with judge critique."""
+        """Node 6: Bounded regeneration node re-invoking generator/synthesizer with critique."""
         retries = state.get("retry_count", 0) + 1
         judge_out = state.get("judge_output") or {}
         feedback = judge_out.get("feedback") or ""
@@ -477,47 +473,31 @@ class MasterOrchestrator:
         intent = state.get("intent")
         history = state.get("chat_history")
 
-        generator = getattr(self.rag_pipeline, "generator", None)
-        context_builder = getattr(self.rag_pipeline, "context_builder", None)
+        regen_dispatch = {
+            IntentType.RAG_ONLY: self._regenerate_rag,
+            IntentType.HYBRID: self._regenerate_hybrid,
+        }
 
-        if (
-            intent == IntentType.RAG_ONLY
-            and generator
-            and hasattr(generator, "regenerate")
-            and context_builder
-        ):
+        handler = regen_dispatch.get(intent)
+        if handler:
             try:
-                chunks = state.get("retrieved_chunks") or []
-                formatted_ctx = context_builder.build_context(chunks)
-                if formatted_ctx:
-                    regen_res = generator.regenerate(
-                        query=query,
-                        formatted_context=formatted_ctx,
-                        previous_answer=candidate,
-                        judge_feedback=feedback,
-                        history=history,
-                    )
-                    new_answer = (
-                        regen_res.answer if hasattr(regen_res, "answer") else str(regen_res)
-                    )
+                new_answer = handler(query, candidate, feedback, history, state)
+                if new_answer:
                     return {
                         "candidate_answer": new_answer,
                         "retry_count": retries,
                     }
             except Exception as exc:
-                logger.warning("RAG generator regeneration error: %s", exc)
+                logger.warning("Regeneration error for intent %s: %s", intent, exc)
 
-        refined_answer = (
-            f"{candidate} (Corrected based on evaluation: {feedback})"
-            if feedback
-            else candidate
-        )
         return {
-            "candidate_answer": refined_answer,
+            "candidate_answer": candidate,
             "retry_count": retries,
         }
 
+
     def output_guardrail_node(self, state: AgentState) -> Dict[str, Any]:
+        """Node 7: Output sanitization, PII masking, and citation verification."""
         candidate = state.get("candidate_answer", "")
         intent = state.get("intent")
         citations = state.get("citations")
@@ -538,16 +518,16 @@ class MasterOrchestrator:
             return "output_guardrail"
         return "intent_router"
 
-    def _route_after_intent(self, state: AgentState) -> str:
+    def _route_after_intent(self, state: AgentState) -> Union[str, List[str]]:
+        """
+        Dispatches intent using INTENT_ROUTES mapping.
+        For independent HYBRID queries, fans out concurrently to ['sql_agent', 'rag_agent'].
+        """
         if state.get("is_input_safe") is False:
             return "output_guardrail"
+
         intent = state.get("intent", IntentType.UNKNOWN)
         return INTENT_ROUTES.get(intent, "answer_synthesis")
-
-    def _route_after_sql(self, state: AgentState) -> str:
-        if state.get("intent") == IntentType.HYBRID:
-            return "rag_agent"
-        return "answer_synthesis"
 
     def _route_after_judge(self, state: AgentState) -> str:
         judge_out = state.get("judge_output") or {}
@@ -560,6 +540,10 @@ class MasterOrchestrator:
         return "output_guardrail"
 
     def _build_graph(self) -> StateGraph:
+        """
+        Constructs master LangGraph with parallel fan-out/fan-in for HYBRID queries:
+        START -> input_guardrail -> intent_router -> [sql_agent, rag_agent] -> answer_synthesis -> llm_judge -> output_guardrail -> END
+        """
         builder = StateGraph(AgentState)
 
         builder.add_node("input_guardrail", self.input_guardrail_node)
@@ -590,15 +574,11 @@ class MasterOrchestrator:
                 "output_guardrail": "output_guardrail",
             },
         )
-        builder.add_conditional_edges(
-            "sql_agent",
-            self._route_after_sql,
-            {
-                "rag_agent": "rag_agent",
-                "answer_synthesis": "answer_synthesis",
-            },
-        )
+
+        # Parallel fan-in: both branches converge on answer_synthesis
+        builder.add_edge("sql_agent", "answer_synthesis")
         builder.add_edge("rag_agent", "answer_synthesis")
+
         builder.add_edge("answer_synthesis", "llm_judge")
         builder.add_conditional_edges(
             "llm_judge",
@@ -626,24 +606,15 @@ class MasterOrchestrator:
         active_session_id = session_id or "default_session"
         start_ts = datetime.now(timezone.utc).isoformat()
 
-        try:
-            run = get_current_run_tree()
-            if run:
-                run.inputs = {"user_query": query}
-                run.metadata.update({
-                    "session_id": active_session_id,
-                    "request_id": active_req_id,
-                    "timestamp": start_ts,
-                    "environment": self.settings.APP_ENV,
-                    "provider": self.settings.DEFAULT_PROVIDER,
-                    "model": self.settings.DEFAULT_MODEL,
-                })
-                if not hasattr(run, "tags") or not run.tags:
-                    run.tags = ["hr-assistant"]
-                elif "hr-assistant" not in run.tags:
-                    run.tags.append("hr-assistant")
-        except Exception:
-            pass
+        update_trace_request(
+            query=query,
+            session_id=active_session_id,
+            request_id=active_req_id,
+            timestamp=start_ts,
+            environment=self.settings.APP_ENV,
+            provider=self.settings.DEFAULT_PROVIDER,
+            model=self.settings.DEFAULT_MODEL,
+        )
 
         try:
             initial_state: AgentState = {
@@ -673,19 +644,6 @@ class MasterOrchestrator:
                     confidence=1.0,
                 )
 
-            self._update_root_meta(
-                metadata={
-                    "intent": decision.category.value,
-                    "route": decision.target or "master",
-                    "route_category": decision.category.value,
-                    "route_target": decision.target,
-                    "allowed": decision.allowed,
-                    "confidence": decision.confidence,
-                    "pipeline": decision.target or "master",
-                },
-                tags=_build_trace_tags(decision),
-            )
-
             source = final_state.get("source") or "master"
             response_text = final_state.get("final_answer") or final_state.get("candidate_answer", "")
             allowed = final_state.get("is_input_safe", True)
@@ -696,7 +654,8 @@ class MasterOrchestrator:
 
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
             status = "blocked" if not allowed else ("error" if error else "success")
-            self._record_root_output(
+
+            record_root_trace(
                 decision=decision,
                 response_text=response_text,
                 status=status,
@@ -728,11 +687,7 @@ class MasterOrchestrator:
                 reason=err_msg,
                 confidence=0.0,
             )
-            self._update_root_meta(
-                metadata={"status": "error", "error": err_msg, "total_latency_ms": elapsed_ms},
-                tags=["error"],
-            )
-            self._record_root_output(
+            record_root_trace(
                 decision=fallback_decision,
                 response_text=fallback_err_resp,
                 status="error",
@@ -747,54 +702,6 @@ class MasterOrchestrator:
                 error=err_msg,
             )
 
-    @staticmethod
-    def _update_root_meta(metadata: Optional[dict] = None, tags: Optional[List[str]] = None) -> None:
-        try:
-            run = get_current_run_tree()
-            if run:
-                if metadata and hasattr(run, "metadata") and isinstance(run.metadata, dict):
-                    run.metadata.update(metadata)
-                if tags and hasattr(run, "tags") and isinstance(run.tags, list):
-                    for t in tags:
-                        if t not in run.tags:
-                            run.tags.append(t)
-        except Exception:
-            pass
-
-    @staticmethod
-    def _record_root_output(
-        decision: RouteDecision,
-        response_text: str,
-        status: str = "success",
-        latency_ms: Optional[float] = None,
-        judge_decision: Optional[JudgeDecision] = None,
-        error: Optional[str] = None,
-    ) -> None:
-        try:
-            run = get_current_run_tree()
-            if run:
-                out_dict = {
-                    "category": decision.category.value,
-                    "target": decision.target,
-                    "response": response_text,
-                    "allowed": decision.allowed,
-                    "status": status,
-                }
-                if latency_ms is not None:
-                    out_dict["total_latency_ms"] = latency_ms
-                if error:
-                    out_dict["error"] = error
-                if judge_decision:
-                    out_dict["judge_passed"] = judge_decision.passed
-                    out_dict["judge_score"] = judge_decision.score
-                run.outputs = out_dict
-                if hasattr(run, "metadata") and isinstance(run.metadata, dict):
-                    run.metadata["status"] = status
-                    if latency_ms is not None:
-                        run.metadata["total_latency_ms"] = latency_ms
-        except Exception:
-            pass
-
 
 def create_copilot_graph(
     router: Optional[QueryRouter] = None,
@@ -805,6 +712,7 @@ def create_copilot_graph(
     judge: Optional[LLMJudge] = None,
     settings: Optional[Settings] = None,
 ) -> StateGraph:
+    """Factory creating uncompiled StateGraph for the Master Orchestrator."""
     orchestrator = MasterOrchestrator(
         router=router,
         rag_pipeline=rag_pipeline,
@@ -821,5 +729,6 @@ def get_copilot_graph(
     orchestrator: Optional[MasterOrchestrator] = None,
     settings: Optional[Settings] = None,
 ) -> Any:
+    """Factory creating compiled executable LangGraph workflow for the Master Orchestrator."""
     orch = orchestrator or MasterOrchestrator(settings=settings)
     return orch.workflow

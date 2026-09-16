@@ -1,8 +1,7 @@
 """
 LangGraph SQL Agent Subgraph.
-Orchestrates: Schema Preparation -> SQL Generation -> SQL Validation -> SQL Execution -> SQL Repair Retry Loop.
+Orchestrates: Schema Context -> NL2SQL Generation -> Dual Validation (AST + Dry-Run) -> Execution -> Bounded Repair (<= 2).
 """
-
 from __future__ import annotations
 
 import logging
@@ -10,24 +9,21 @@ from typing import Any, Dict, List, Optional
 
 from langgraph.graph import END, START, StateGraph
 
-try:
-    from langsmith import traceable
-except ImportError:
-    def traceable(*args, **kwargs):
-        def decorator(fn):
-            return fn
-        return decorator
-
 from src.core.config import Settings, get_settings
-from src.core.llm import get_llm
 from src.core.observability import safe_trace_span
 from src.core.state import SQLState
 from src.guardrails.sql_guardrail import SQLGuardrail, SQLGuardrailResult
 from src.sql.executor import ExecutionResult, SQLExecutor
+from src.sql.formatter import SQLResultPresenter, render_markdown_table
 from src.sql.generator import SQLGenerationResult, SQLGenerator
 from src.sql.schema_provider import SchemaProvider
 
 logger = logging.getLogger(__name__)
+
+
+def format_markdown_table(rows: List[Dict[str, Any]], max_rows: int = 25) -> str:
+    """Format a list of dictionary rows into a clean Markdown table."""
+    return render_markdown_table(rows, max_rows=max_rows)
 
 
 class SQLGraphBuilder:
@@ -40,23 +36,25 @@ class SQLGraphBuilder:
         generator: Optional[SQLGenerator] = None,
         guardrail: Optional[SQLGuardrail] = None,
         executor: Optional[SQLExecutor] = None,
+        presenter: Optional[SQLResultPresenter] = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.schema_provider = schema_provider or SchemaProvider()
         self.generator = generator or SQLGenerator()
-        self.guardrail = guardrail or SQLGuardrail(self.settings)
+        self.guardrail = guardrail or SQLGuardrail(self.settings, schema_provider=self.schema_provider)
         self.executor = executor or SQLExecutor()
+        self.presenter = presenter or SQLResultPresenter()
         self.max_retries = getattr(self.settings, "MAX_SQL_RETRIES", 2)
         self._schema_context = self.schema_provider.get_full_schema()
 
     def schema_preparation_node(self, state: SQLState) -> Dict[str, Any]:
-        """Node 1: Extract and prepare database schema context."""
+        """Node 1: Extract and prepare enriched database schema context."""
         query = state.get("sanitized_query") or state.get("query", "")
         with safe_trace_span(
             name="SchemaContext",
             run_type="chain",
             inputs={"query": query},
-            metadata={"tables_available": self.settings.ALLOWED_SQL_TABLES},
+            metadata={"tables_available": self.schema_provider.get_table_names()},
         ) as schema_span:
             schema_context = self._schema_context
             if schema_span:
@@ -76,8 +74,8 @@ class SQLGraphBuilder:
         if not gen_result.is_generatable:
             reason = gen_result.reason
             msg = (
-                f"I can query employee salary and database records, but \"{reason}\" "
-                "does not map clearly to a database field. What specific salary or employee data would you like to view?"
+                f"I can query employee salary, benefits, leave, and department records, but \"{reason}\" "
+                "does not map to available HR database fields. What specific employee or workforce data would you like to view?"
             )
             return {
                 "generated_sql": "",
@@ -95,7 +93,7 @@ class SQLGraphBuilder:
         }
 
     def sql_validation_node(self, state: SQLState) -> Dict[str, Any]:
-        """Node 3: Deterministically validate SQL safety, tables, and keywords."""
+        """Node 3: Dual-stage validation: Stage 1 AST Safety + Stage 2 SQLite Dry-Run."""
         sql = state.get("generated_sql", "")
         if not sql:
             return {
@@ -103,19 +101,36 @@ class SQLGraphBuilder:
                 "sql_validation_notes": state.get("sql_error") or "No SQL generated.",
             }
 
+        # Stage 1: Deterministic AST Safety
         validation: SQLGuardrailResult = self.guardrail.validate(sql)
-        updates: Dict[str, Any] = {
-            "is_sql_valid": validation.is_valid,
-            "sql_validation_notes": validation.notes,
+        if not validation.is_valid:
+            return {
+                "is_sql_valid": False,
+                "sql_validation_notes": validation.notes,
+                "sql_error": validation.notes,
+                "sql_validation_result": validation,
+            }
+
+        normalized_sql = validation.normalized_sql or sql
+
+        # Stage 2: SQLite Dry-Run (EXPLAIN QUERY PLAN)
+        dry_run_valid, dry_run_error = self.executor.dry_run(normalized_sql)
+        if not dry_run_valid:
+            return {
+                "is_sql_valid": False,
+                "generated_sql": normalized_sql,
+                "sql_validation_notes": f"Dry-run compilation error: {dry_run_error}",
+                "sql_error": dry_run_error,
+                "sql_validation_result": validation,
+            }
+
+        return {
+            "is_sql_valid": True,
+            "generated_sql": normalized_sql,
+            "sql_validation_notes": "Passed AST safety and SQLite dry-run validation.",
+            "sql_error": None,
+            "sql_validation_result": validation,
         }
-
-        if validation.is_valid:
-            if validation.normalized_sql:
-                updates["generated_sql"] = validation.normalized_sql
-        else:
-            updates["sql_error"] = validation.notes
-
-        return updates
 
     def sql_execution_node(self, state: SQLState) -> Dict[str, Any]:
         """Node 4: Execute validated SQL read-only query against SQLite."""
@@ -127,6 +142,7 @@ class SQLGraphBuilder:
                 "sql_data": [],
                 "sql_row_count": 0,
                 "sql_error": exec_result.error,
+                "sql_execution_result": exec_result,
                 "errors": [exec_result.error] if exec_result.error else [],
             }
 
@@ -134,10 +150,11 @@ class SQLGraphBuilder:
             "sql_data": exec_result.rows,
             "sql_row_count": exec_result.row_count,
             "sql_error": None,
+            "sql_execution_result": exec_result,
         }
 
     def sql_repair_node(self, state: SQLState) -> Dict[str, Any]:
-        """Node 5: Increment retry count, build error feedback, and re-generate query."""
+        """Node 5: Increment retry count and re-generate using structured error feedback."""
         current_retries = state.get("sql_retry_count", 0) + 1
         query = state.get("sanitized_query") or state.get("query", "")
         previous_sql = state.get("generated_sql", "")
@@ -149,14 +166,12 @@ class SQLGraphBuilder:
             f"SQL Subgraph Repair Attempt {current_retries}/{self.max_retries}. Error: {error_msg}"
         )
 
-        repair_query = (
-            f"{query}\n\n"
-            f"[Correction Request]: Previous SQL was '{previous_sql}'. Error: {error_msg}. "
-            "Please fix this error and generate a single valid SELECT query using only allowed tables and columns."
-        )
-
-        gen_result: SQLGenerationResult = self.generator.generate(
-            repair_query, schema_context, history=history
+        gen_result: SQLGenerationResult = self.generator.repair(
+            question=query,
+            schema_context=schema_context,
+            previous_sql=previous_sql,
+            error_feedback=error_msg,
+            history=history,
         )
 
         if not gen_result.is_generatable:
@@ -192,15 +207,15 @@ class SQLGraphBuilder:
 
         if not is_valid:
             notes = state.get("sql_validation_notes") or sql_error or "SQL failed validation."
-            return f"SQL Guardrail blocked query: {notes}"
+            return f"SQL safety guardrail: {notes}"
 
         if sql_error:
-            return f"Database execution failed: {sql_error}"
+            return f"Database execution error: {sql_error}"
 
         return state.get("sql_validation_notes") or "SQL generation or execution failed."
 
     def format_sql_result_node(self, state: SQLState) -> Dict[str, Any]:
-        """Node 6: Finalize structured SQL pipeline output and candidate message."""
+        """Node 6: Finalize structured SQL pipeline output, Markdown table, and candidate message."""
         from src.sql.pipeline import SQLPipelineResult
 
         query = state.get("sanitized_query") or state.get("query", "")
@@ -212,56 +227,39 @@ class SQLGraphBuilder:
         retries = state.get("sql_retry_count", 0)
 
         success = is_valid and sql_error is None
-        msg = self._build_candidate_message(state, is_valid, sql_error, row_count)
+        if success:
+            msg = self.presenter.present(
+                question=query,
+                rows=rows,
+                row_count=row_count,
+                generated_sql=generated_sql,
+                is_valid=is_valid,
+                sql_error=sql_error,
+            )
+        else:
+            msg = self._build_candidate_message(state, is_valid, sql_error, row_count)
 
-        if success and rows:
-            try:
-                llm = get_llm(temperature=0.0)
-                prompt = (
-                    f"You are PeopleQuery AI, an Enterprise HR Intelligence Copilot.\n"
-                    f"Provide a direct, concise, and professional natural language answer to the user's question based strictly on the SQL query results below. Do NOT mention SQL query details or table names unless asked.\n\n"
-                    f"User Question: \"{query}\"\n"
-                    f"Query Results ({row_count} rows):\n{rows[:25]}\n\n"
-                    f"Direct Answer:"
-                )
-                res = llm.invoke(prompt)
-                raw_c = res.content if hasattr(res, "content") else str(res)
-                if isinstance(raw_c, list):
-                    text = "".join(
-                        chunk.get("text", str(chunk)) if isinstance(chunk, dict) else str(chunk)
-                        for chunk in raw_c
-                    )
-                else:
-                    text = str(raw_c)
-                if text.strip():
-                    msg = text.strip()
-            except Exception as e:
-                logger.debug("SQL answer synthesis fallback: %s", e)
-        elif success and not rows:
-            msg = "No matching employee or workforce records were found in the database."
-
-        # Validation object reconstruction
-        validation_obj: Optional[SQLGuardrailResult] = None
-        if generated_sql:
+        validation_obj: Optional[SQLGuardrailResult] = state.get("sql_validation_result")
+        if validation_obj is None and generated_sql:
             validation_obj = SQLGuardrailResult(
                 is_valid=is_valid,
                 normalized_sql=generated_sql,
                 notes=state.get("sql_validation_notes", ""),
             )
 
-        # Execution object reconstruction
-        exec_obj: Optional[ExecutionResult] = None
-        if success:
-            exec_obj = ExecutionResult(
-                success=True,
-                rows=rows,
-                row_count=row_count,
-            )
-        elif sql_error:
-            exec_obj = ExecutionResult(
-                success=False,
-                error=sql_error,
-            )
+        exec_obj: Optional[ExecutionResult] = state.get("sql_execution_result")
+        if exec_obj is None:
+            if success:
+                exec_obj = ExecutionResult(
+                    success=True,
+                    rows=rows,
+                    row_count=row_count,
+                )
+            elif sql_error:
+                exec_obj = ExecutionResult(
+                    success=False,
+                    error=sql_error,
+                )
 
         pipeline_result = SQLPipelineResult(
             success=success,
@@ -360,6 +358,7 @@ def create_sql_graph(
     generator: Optional[SQLGenerator] = None,
     guardrail: Optional[SQLGuardrail] = None,
     executor: Optional[SQLExecutor] = None,
+    presenter: Optional[SQLResultPresenter] = None,
 ) -> StateGraph:
     """Factory creating uncompiled StateGraph for the SQL Agent."""
     builder = SQLGraphBuilder(
@@ -368,6 +367,7 @@ def create_sql_graph(
         generator=generator,
         guardrail=guardrail,
         executor=executor,
+        presenter=presenter,
     )
     return builder.build_graph()
 
@@ -378,6 +378,7 @@ def get_compiled_sql_graph(
     generator: Optional[SQLGenerator] = None,
     guardrail: Optional[SQLGuardrail] = None,
     executor: Optional[SQLExecutor] = None,
+    presenter: Optional[SQLResultPresenter] = None,
 ) -> Any:
     """Factory creating compiled executable LangGraph workflow for the SQL Agent."""
     graph = create_sql_graph(
@@ -386,5 +387,6 @@ def get_compiled_sql_graph(
         generator=generator,
         guardrail=guardrail,
         executor=executor,
+        presenter=presenter,
     )
     return graph.compile()

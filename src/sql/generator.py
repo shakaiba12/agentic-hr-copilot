@@ -1,12 +1,13 @@
 """
 SQL Pipeline: Natural Language to SQL Generator
-Sends the user question + schema context to the LLM and returns a single
-clean PostgreSQL/SQLite SELECT statement.
+Converts user natural-language questions + schema context into a single,
+safe, read-only SQLite SELECT query.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any, List, Optional
 
 try:
     from langsmith import traceable
@@ -19,27 +20,28 @@ except ImportError:
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.core.llm import get_llm
+from src.sql.exemplars import format_exemplars_for_prompt, get_relevant_exemplars
 
 
 _SYSTEM_PROMPT = """\
-You are an expert SQL engineer for a Human Resources analytics system.
+You are an expert SQL engineer for PeopleQuery AI.
 
-Your only job is to convert the user's natural-language question into a \
-single, safe, read-only SELECT query using the schema provided.
+Your job is to convert the user's natural-language question into a single, safe, read-only SQLite SELECT query strictly using the introspected database schema and domain values provided below.
 
-Rules you MUST follow:
-1. Output ONLY the raw SQL — no markdown fences, no explanation, no commentary.
-2. Use only the tables and columns present in the schema below.
-3. Never use INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, or TRUNCATE.
-4. Always add a LIMIT clause — default to 100 rows unless the question implies a scalar.
-5. Use table aliases for clarity when joining multiple tables.
-6. For date arithmetic in SQLite use: date('now', '-N months') or julianday().
-7. Return NULL-safe comparisons; prefer IS NULL over = NULL.
-8. For location/city queries (e.g. department locations like 'Austin, TX' or 'New York, NY'), use case-insensitive partial matching (e.g. d.location LIKE '%Austin%') rather than exact equality, since stored locations may include state codes or extra details.
-9. If prior conversation context is provided, use it ONLY to resolve pronouns or omitted filters (e.g. department names or locations) for the current question.
-10. If the question cannot be answered with the given schema, write exactly:
-   -- CANNOT_GENERATE: <brief reason>
+Strict Rules:
+1. Output ONLY the raw SQL query — no markdown fences, no conversational filler, no commentary.
+2. Use only the tables, columns, and foreign keys explicitly defined in the provided schema.
+3. NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, ATTACH, DETACH, or PRAGMA.
+4. Default to LIMIT 100 on non-aggregate queries unless the user asks for a specific count or scalar aggregation.
+5. Use clear table aliases when joining tables based on foreign key relationships defined in the schema.
+6. For date arithmetic in SQLite use: date('now', '-N months'), date('now', '-N days'), strftime('%Y', date_col), or julianday().
+7. For text matching and filtering, use case-insensitive matching: LOWER(column) LIKE '%term%' or column LIKE '%term%'.
+8. For categorical filters, match against the distinct column values provided in the schema context.
+9. If prior conversation history is provided, use it ONLY to resolve pronouns or omitted contextual filters from previous turns.
+10. If the question asks for data not present in the database schema, output exactly:
+    -- CANNOT_GENERATE: <brief explanation of missing schema tables or columns>
 {history_context}
+{exemplars_context}
 Schema:
 {schema}
 """
@@ -55,7 +57,7 @@ class SQLGenerationResult:
 
 
 class SQLGenerator:
-    """Calls the LLM to produce a SQL SELECT from natural language."""
+    """Calls the LLM to produce a SQLite SELECT query from natural language."""
 
     def __init__(self, provider: str | None = None, model: str | None = None) -> None:
         self._llm = get_llm(provider=provider, model_name=model, temperature=0.0)
@@ -65,7 +67,7 @@ class SQLGenerator:
         if not history:
             return ""
         lines = []
-        for turn in history[-6:]:
+        for turn in history[-4:]:
             if isinstance(turn, dict):
                 role = str(turn.get("role", "user")).capitalize()
                 content = str(turn.get("content", "")).strip()
@@ -77,22 +79,73 @@ class SQLGenerator:
             return ""
         return "\nRecent Conversation Context:\n" + "\n".join(lines) + "\n"
 
+    def _build_system_prompt(
+        self,
+        schema_context: str,
+        history: Optional[List[Any]],
+        use_exemplars: bool,
+        question: str,
+        error_feedback: Optional[str],
+    ) -> SystemMessage:
+        hist_ctx = self._format_history_context(history)
+        exemplars_ctx = ""
+        if use_exemplars and not error_feedback:
+            matched_exemplars = get_relevant_exemplars(question, max_exemplars=2)
+            exemplars_ctx = format_exemplars_for_prompt(matched_exemplars)
+
+        prompt_str = _SYSTEM_PROMPT.format(
+            schema=schema_context,
+            history_context=hist_ctx,
+            exemplars_context=exemplars_ctx,
+        )
+        return SystemMessage(content=prompt_str)
+
+    def _build_user_message(
+        self,
+        question: str,
+        previous_sql: Optional[str],
+        error_feedback: Optional[str],
+    ) -> HumanMessage:
+        if previous_sql and error_feedback:
+            content = (
+                f"Question: {question}\n\n"
+                f"Previous SQL Attempt:\n{previous_sql}\n\n"
+                f"Validation / Execution Error:\n{error_feedback}\n\n"
+                "Please correct this query and provide only the corrected single SQLite SELECT statement."
+            )
+        else:
+            content = question
+        return HumanMessage(content=content)
+
     @traceable(name="SQLGeneration", run_type="chain")
     def generate(
         self,
         question: str,
         schema_context: str,
         history: Optional[List[Any]] = None,
+        use_exemplars: bool = True,
+        previous_sql: Optional[str] = None,
+        error_feedback: Optional[str] = None,
     ) -> SQLGenerationResult:
         """
         Generate SQL from a natural-language question and schema context.
 
-        Returns a SQLGenerationResult with `is_generatable=False` if the LLM
-        signals it cannot produce a valid query.
+        Supports structured repair feedback via previous_sql and error_feedback.
+        Returns SQLGenerationResult with is_generatable=False if the LLM
+        signals it cannot produce a valid query from schema.
         """
-        hist_ctx = self._format_history_context(history)
-        system = SystemMessage(content=_SYSTEM_PROMPT.format(schema=schema_context, history_context=hist_ctx))
-        human = HumanMessage(content=question)
+        system = self._build_system_prompt(
+            schema_context=schema_context,
+            history=history,
+            use_exemplars=use_exemplars,
+            question=question,
+            error_feedback=error_feedback,
+        )
+        human = self._build_user_message(
+            question=question,
+            previous_sql=previous_sql,
+            error_feedback=error_feedback,
+        )
 
         response = self._llm.invoke([system, human])
         raw_content = response.content
@@ -105,14 +158,17 @@ class SQLGenerator:
             raw_text = str(raw_content)
 
         raw = raw_text.strip()
-
-
         result = self._parse_generation_response(raw)
+
         try:
             from langsmith.run_helpers import get_current_run_tree
             run = get_current_run_tree()
             if run:
-                run.inputs = {"question": question, "schema_snippet": schema_context[:300]}
+                run.inputs = {
+                    "question": question,
+                    "schema_snippet": schema_context[:300],
+                    "is_repair": bool(error_feedback),
+                }
                 run.outputs = {
                     "raw_output": raw,
                     "sql": result.sql,
@@ -121,7 +177,27 @@ class SQLGenerator:
                 }
         except Exception:
             pass
+
         return result
+
+    def repair(
+        self,
+        question: str,
+        schema_context: str,
+        previous_sql: str,
+        error_feedback: str,
+        history: Optional[List[Any]] = None,
+    ) -> SQLGenerationResult:
+        """Convenience method for structured SQL repair iteration."""
+        return self.generate(
+            question=question,
+            schema_context=schema_context,
+            history=history,
+            use_exemplars=False,
+            previous_sql=previous_sql,
+            error_feedback=error_feedback,
+        )
+
 
     def _parse_generation_response(self, raw: str) -> SQLGenerationResult:
         sql = self._extract_sql(raw)
@@ -135,7 +211,6 @@ class SQLGenerator:
             return SQLGenerationResult(sql="", is_generatable=False, reason=reason)
 
         return SQLGenerationResult(sql=sql, is_generatable=True, reason="ok")
-
 
     @staticmethod
     def _extract_sql(raw: str) -> str:

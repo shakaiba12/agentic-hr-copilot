@@ -42,9 +42,24 @@ class SQLGuardrail:
         r"(?:\.([`\"[]?[a-zA-Z_][\w$]*[`\"]]?))?"
     )
 
-    def __init__(self, settings: Optional[Settings] = None) -> None:
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+        allowed_tables: Optional[set[str] | list[str]] = None,
+        schema_provider: Optional[Any] = None,
+    ) -> None:
         self.settings = settings or get_settings()
-        self._allowed_tables = {t.lower() for t in self.settings.ALLOWED_SQL_TABLES}
+        if allowed_tables is not None:
+            self._allowed_tables = {t.lower() for t in allowed_tables}
+        elif schema_provider is not None and hasattr(schema_provider, "get_table_names"):
+            self._allowed_tables = {t.lower() for t in schema_provider.get_table_names()}
+        else:
+            try:
+                from src.sql.schema_provider import SchemaProvider
+                provider = SchemaProvider()
+                self._allowed_tables = {t.lower() for t in provider.get_table_names()}
+            except Exception:
+                self._allowed_tables = {t.lower() for t in self.settings.ALLOWED_SQL_TABLES}
         self._blocked_keywords = {k.upper() for k in self.settings.BLOCKED_SQL_KEYWORDS}
 
     @traceable(name="SQLValidation", run_type="chain")

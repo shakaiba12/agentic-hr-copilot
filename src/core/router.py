@@ -33,6 +33,7 @@ class RouteCategory(str, Enum):
     CASUAL = "CASUAL"
     RAG_KNOWLEDGE = "RAG_KNOWLEDGE"
     DATA_QUERY = "DATA_QUERY"
+    HYBRID = "HYBRID"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
     INVALID = "INVALID"
     PROMPT_INJECTION = "PROMPT_INJECTION"
@@ -81,7 +82,7 @@ class QueryRouter:
         re.compile(r"(?i)\bwhat\s+does\s+['\"].*?['\"]\s+mean\b"),
     )
 
-    # Operational database inquiries (employees, salaries, departments, roles, direct counts)
+    # Operational database inquiries (records, metrics, employee attributes, directories, aggregates)
     _DATA_QUERY_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.compile(r"(?i)\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b.*?\b(mail\s+of|email\s+of|employee|name|who|which|find|owner|user|belongs|profile|details|person)\b"),
         re.compile(r"(?i)\b(mail\s+of|email\s+of|who\s+has|who\s+uses|who\s+is|who\s+owns|which\s+employee|what\s+employee|find\s+(the\s+)?employee|name\s+of|employee\s+name|contact\s+of|profile\s+for|lookup|look\s+up|search\s+for|owner\s+of)\b.*?\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b"),
@@ -89,26 +90,28 @@ class QueryRouter:
         re.compile(r"(?i)\b(what|which)\s+employee\s+(has|uses|is)\s+[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b"),
         re.compile(r"(?i)\b(what\s+is|find|get|show)\s+[a-zA-Z]+(\s+[a-zA-Z]+)?'?s?\s+(email|e-mail|mail\s+address|email\s+address)\b"),
         re.compile(r"(?i)\b(email|e-mail)\s+(of|for)\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\b"),
-        re.compile(r"(?i)\b(what\s+is\s+(the\s+)?|what\s+|get\s+(the\s+)?|give\s+me\s+(the\s+)?|total\s+|current\s+)?(count|number|total|percentage|percent|proportion|share|ratio)\s+of\s+(current\s+|curent\s+|all\s+|total\s+)?(employees?|employes?|employess?|staff|people|workers?|users?|doctors?|patients?|records?|positions?|departments?)\b"),
-        re.compile(r"(?i)\b(\w+\s+)?(employees?|employe|employess|staff|worker)\s+(count|total|number|records?|database|information|salaries|salary|sary|salery|pay|compensation)\b"),
-        re.compile(r"(?i)\b(salary|salaries|sary|salery|pay|compensation)\s+of\s+(\w+\s+)?(employees?|employe|employess|staff)\b"),
-        re.compile(r"(?i)\bhow\s+many\s+(current\s+|curent\s+|total\s+|open\s+|active\s+)?(employees?|employes?|employess?|people|staff|workers?|users?|doctors?|patients?|records?|departments?|positions?|leaves?|direct\s+reports?|teammates?)\b"),
-        re.compile(r"(?i)\bhow\s+many\s+(people|employees?|employes?|staff)\s+(work\s+here|are\s+there|do\s+we\s+have)\b"),
-        re.compile(r"(?i)\b(list|show|count|give\s+me|get)\s+(all\s+|the\s+number\s+of\s+)?(employees?|employes?|employess?|doctors?|patients?|users?|departments?|positions?|staff|salaries|customer\s+records?|employee\s+records?|database\s+contents?)\b"),
+        re.compile(r"(?i)\b(what\s+is\s+(the\s+)?|what\s+|get\s+(the\s+)?|give\s+me\s+(the\s+)?|total\s+|current\s+)?(count|number|total|percentage|percent|proportion|share|ratio)\s+of\s+(current\s+|all\s+|total\s+)?(employees?|staff|people|workers?|users?|records?|positions?|departments?)\b"),
+        re.compile(r"(?i)\b(\w+\s+)?(employees?|staff|worker)\s+(count|total|number|records?|database|information|salaries|salary|pay|compensation)\b"),
+        re.compile(r"(?i)\b(salary|salaries|pay|compensation)\s+of\s+(\w+\s+)?(employees?|staff)\b"),
+        re.compile(r"(?i)\bhow\s+many\s+(current\s+|total\s+|open\s+|active\s+)?(employees?|people|staff|workers?|users?|records?|departments?|positions?|leaves?|direct\s+reports?|teammates?)\b"),
+        re.compile(r"(?i)\bhow\s+many\s+(people|employees?|staff)\s+(work\s+here|are\s+there|do\s+we\s+have)\b"),
+        re.compile(r"(?i)\b(list|show|count|give\s+me|get)\s+(all\s+|the\s+number\s+of\s+)?(employees?|users?|departments?|positions?|staff|salaries|customer\s+records?|employee\s+records?|database\s+contents?)\b"),
         re.compile(r"(?i)\b(who\s+are\s+the\s+employees?|employee\s+salary\s+records?|highest\s+paid\s+employee|lowest\s+paid\s+employee)\b"),
-        re.compile(r"(?i)\b(average|highest|lowest|median|total|min|max)\s+(employee\s+)?(salary|salaries|sary|salery)\b"),
-        re.compile(r"(?i)\bwhat\s+is\s+(the\s+)?(average|highest|lowest|median|total)\s+(employee\s+)?(salary|salaries)\b"),
-        re.compile(r"(?i)\b(what\s+is\s+(the\s+)?|what's\s+(the\s+)?)?[a-zA-Z]+(\s+[a-zA-Z]+)?'?s?\s+(salary|salaries|sary|salery|compensation|pay|performance\s+rating|hire\s+date|position|role|title|department|manager|email|status|first\s+name|last\s+name|gender)\b"),
-        re.compile(r"(?i)\b(salary|salaries|sary|salery|compensation|pay|performance\s+rating|hire\s+date|position|role|title|department|manager|email|status|first\s+name|last\s+name|gender)\s+of\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\b"),
+        re.compile(r"(?i)\b(average|highest|lowest|median|total|min|max|mean)\s+(employee\s+)?(salary|salaries|compensation|pay|tenure|age|rating)\b"),
+        re.compile(r"(?i)\bwhat\s+is\s+(the\s+)?(average|highest|lowest|median|total|mean)\s+(employee\s+)?(salary|salaries|compensation|pay|tenure|age)\b"),
+        re.compile(r"(?i)\b(what\s+is\s+(the\s+)?|what's\s+(the\s+)?)?[a-zA-Z]+(\s+[a-zA-Z]+)?(?:'s|')\s+(salary|salaries|compensation|pay|performance\s+rating|hire\s+date|position|role|title|department|manager|email|status|first\s+name|last\s+name|gender)\b"),
+        re.compile(r"(?i)\b(salary|salaries|compensation|pay|performance\s+rating|hire\s+date|position|role|title|department|manager|email|status|first\s+name|last\s+name|gender)\s+of\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\b"),
         re.compile(r"(?i)\bhow\s+much\s+(does|is)\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\s+(make|earn|paid|get\s+paid)\b"),
-        re.compile(r"(?i)\bwho\s+is\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\s+(in\s+(the\s+|our\s+)?(company|comapny|team|org|organization|department)|and\s+what\s+(is\s+)?(her|his|their)\s+(position|role|job|title))\b"),
-        re.compile(r"(?i)\bhow\s+many\s+(work\s+in|are\s+in|belong\s+to)\s+[a-zA-Z\s]+\s+department\b"),
+        re.compile(r"(?i)\bwho\s+is\s+[a-zA-Z]+(\s+[a-zA-Z]+)?\s+(in\s+(the\s+|our\s+)?(company|team|org|organization|department)|and\s+what\s+(is\s+)?(her|his|their)\s+(position|role|job|title))\b"),
+        re.compile(r"(?i)\bhow\s+many\s+(work\s+in|are\s+in|belong\s+to)\s+[a-zA-Z\s]+(\s+department|\s+team|\s+group|\s+office|\s+unit)\b"),
         re.compile(r"(?i)\b(who|which\s+employees?)\s+(is|are)\s+(currently\s+)?(on\s+leave|on\s+sick\s+leave|on\s+parental\s+leave|on\s+vacation|using\s+benefits)\b"),
-        re.compile(r"(?i)\bwho\s+works\s+in\s+(the\s+)?(hr|engineering|sales|marketing|finance|[a-zA-Z\s]+\s+department)\b"),
+        re.compile(r"(?i)\bwho\s+works\s+in\s+(the\s+)?([a-zA-Z\s]+(\s+department|\s+team|\s+unit|\s+office|\s+group))\b"),
         re.compile(r"(?i)\b(salary\s+range|pay\s+band|min\s+and\s+max\s+salary)\s+(for|of)\s+[a-zA-Z\s]+\b"),
         re.compile(r"(?i)\b(who\s+reports\s+to|direct\s+reports\s+of|manager\s+of\s+[a-zA-Z\s]+|who\s+manages\s+[a-zA-Z\s]+)\b"),
         re.compile(r"(?i)\b(who\s+was\s+hired\s+in\s+\d{4}|newest\s+hires?|recent\s+hires?|most\s+tenured\s+employees?)\b"),
-        re.compile(r"(?i)\b(who|which|what|list|show)\s+(employees?|employes?|employess?|people|staff|workers?|teammates?)?\s*(were|was|are)?\s*(hired\s+(after|before|in|on|between|since)|hire\s+date\s+(after|before|in|on|between|is|was))\b"),
+        re.compile(r"(?i)\b(who|which|what|list|show)\s+(employees?|people|staff|workers?|teammates?)?\s*(were|was|are)?\s*(hired\s+(after|before|in|on|between|since)|hire\s+date\s+(after|before|in|on|between|is|was))\b"),
+        re.compile(r"(?i)\b(average|median|mean)\s+tenure\b"),
+        re.compile(r"(?i)\btenure\s+of\s+(our\s+|the\s+)?(\w+\s+)?(employees?|staff|team|department|group|workers?)\b"),
     )
 
     # Enterprise RAG knowledge inquiries (HR policies, documentation, benefits, rules, stipends, conduct)
@@ -133,10 +136,19 @@ class QueryRouter:
         re.compile(r"(?i)\b(remote\s+work|work\s+from\s+home|wfh|flexible\s+work|coworking|travel\s+policy|travel\s+guidelines?)\b"),
         re.compile(r"(?i)\b(termination|severance|offboarding|resignation|leaving\s+the\s+company|notice\s+period)\b"),
         re.compile(r"(?i)\b(compensation\s+review|salary\s+review(\s+policy)?|rules\s+for\s+compensation|rules\s+for\s+salary)\b"),
+        re.compile(r"(?i)\b(annual\s+performance\s+reviews?|performance\s+reviews?|performance\s+evaluations?|performance\s+appraisals?|annual\s+reviews?|compensation\s+adjustments?|salary\s+adjustments?|promotion\s+cycles?|review\s+cycles?)\b"),
+        re.compile(r"(?i)\b(when|how|who|what)\s+(are|is|do|can)\s+(employees?|staff|we|workers?|people)?\s*(eligible|qualify|entitled)\b"),
+        re.compile(r"(?i)\b(when\s+are|how\s+often\s+are)\s+(employees?|staff|we|workers?|salaries|compensations?|reviews?)\s*(reviewed|adjusted|evaluated|conducted|eligible)\b"),
+        re.compile(r"(?i)\b(eligibility|qualifications?|entitlements?)\s+(for|to|of|under|requirements?)\b"),
         re.compile(r"(?i)\b(who\s+is\s+eligible|am\s+i\s+eligible|do\s+i\s+qualify|am\s+i\s+entitled\s+to|what\s+am\s+i\s+entitled\s+to)\b"),
         re.compile(r"(?i)\b(what\s+(is|are)\s+the\s+(requirements?|rules?|guidelines?|standards?|procedures?|limits?)|how\s+do\s+i\s+claim)\b"),
         re.compile(r"(?i)\b(contractors?|interns?|part-time)\s+(eligible|receive|claim|qualify|benefits?|policy)\b"),
         re.compile(r"(?i)\b(property\s+of\s+the\s+company|permanent\s+property|company\s+property)\b"),
+    )
+
+    _COMPOUND_SPLIT_PATTERN = re.compile(
+        r"(?:\?+\s*|\;\s*|,\s*(?:and|while|additionally|also|plus|along with)\s+|\s+(?:and|while|additionally|plus)\s+(?:when|what|how|where|who|which|is|are|can|could|should|does|do|why|tell\s+me|show\s+me|list|find|give\s+me|provide|explain)\b|\s+as\s+well\s+as\s+(?:when|what|how|where|who|which|is|are|can|could|should|does|do|why|explaining|providing)\b|\n+)",
+        re.IGNORECASE,
     )
 
     _FOLLOW_UP_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -235,13 +247,65 @@ class QueryRouter:
                 confidence=1.0,
             )
 
-        # 4. SQL Data Query vs RAG Knowledge Query patterns
+        # 4. Multi-turn Contextual Follow-up
+        if history and any(p.search(sanitized) for p in self._FOLLOW_UP_PATTERNS):
+            prev_context_category = self._infer_history_context(history)
+            if prev_context_category == RouteCategory.RAG_KNOWLEDGE:
+                return RouteDecision(
+                    category=RouteCategory.RAG_KNOWLEDGE,
+                    allowed=True,
+                    target="rag",
+                    reason="Contextual follow-up continuing prior RAG policy inquiry.",
+                    confidence=0.9,
+                )
+            if prev_context_category == RouteCategory.DATA_QUERY:
+                return RouteDecision(
+                    category=RouteCategory.DATA_QUERY,
+                    allowed=True,
+                    target="data_specialist",
+                    reason="Contextual follow-up continuing prior database inquiry.",
+                    confidence=0.9,
+                )
+            if prev_context_category == RouteCategory.HYBRID:
+                return RouteDecision(
+                    category=RouteCategory.HYBRID,
+                    allowed=True,
+                    target="hybrid",
+                    reason="Contextual follow-up continuing prior hybrid inquiry.",
+                    confidence=0.9,
+                )
+
+        # 5. Compound / structural hybrid check across clauses/conjunctions
+        parts = [p.strip() for p in self._COMPOUND_SPLIT_PATTERN.split(sanitized) if p.strip()]
+        if len(parts) > 1:
+            part_is_data = [any(p.search(part) for p in self._DATA_QUERY_PATTERNS) for part in parts]
+            part_is_rag = [any(p.search(part) for p in self._RAG_KNOWLEDGE_PATTERNS) for part in parts]
+            if any(part_is_data) and any(part_is_rag):
+                return RouteDecision(
+                    category=RouteCategory.HYBRID,
+                    allowed=True,
+                    target="hybrid",
+                    reason="Compound query containing both database records inquiry and HR policy documentation inquiry.",
+                    confidence=0.95,
+                )
+
+        # 6. SQL Data Query vs RAG Knowledge Query patterns (single-sentence / whole query)
         is_data_query = any(p.search(sanitized) for p in self._DATA_QUERY_PATTERNS)
         is_rag_query = any(p.search(sanitized) for p in self._RAG_KNOWLEDGE_PATTERNS)
 
         if is_data_query and is_rag_query:
-            is_explicit_policy = bool(re.search(r"(?i)\b(policy|policies|guidelines?|handbook|code\s+of\s+conduct|rules\s+for|allowed|entitled|eligible|can\s+(i|we|employees?)\s+take|want\s+to\s+take|whose\s+approval|approval|permission|consecutive\s+days|days\s+off|business\s+days|premiums?|insurance\s+premiums?|coverage\s+percentage|coverage|pay\s+for\s+(health|medical|dental|vision|insurance|benefits?))\b", sanitized))
+            is_explicit_policy = bool(re.search(r"(?i)\b(policy|policies|guidelines?|handbook|code\s+of\s+conduct|rules\s+for|allowed|entitled|eligible|can\s+(i|we|employees?)\s+take|want\s+to\s+take|whose\s+approval|approval|permission|consecutive\s+days|days\s+off|business\s+days|premiums?|insurance\s+premiums?|coverage\s+percentage|coverage|pay\s+for\s+(health|medical|dental|vision|insurance|benefits?)|annual\s+reviews?|performance\s+reviews?|review\s+cycles?)\b", sanitized))
             has_live_headcount = bool(re.search(r"(?i)\b(how\s+many\s+(employees?|people|staff|teammates?)|count\s+of|total\s+count|percentage\s+of\s+(employees?|people|staff|teammates?|workers?)|currently\s+(using|on|taking)|who\s+is\s+currently)\b", sanitized))
+            has_explicit_data_metric = bool(re.search(r"(?i)\b(average|median|mean|highest|lowest|total|count|number\s+of|salary\s+of|tenure\s+of|how\s+many\s+employees?|how\s+many\s+people|who\s+works?|who\s+is\s+the\s+manager)\b", sanitized))
+
+            if has_explicit_data_metric and is_explicit_policy:
+                return RouteDecision(
+                    category=RouteCategory.HYBRID,
+                    allowed=True,
+                    target="hybrid",
+                    reason="Query contains both structured database request and qualitative policy inquiry.",
+                    confidence=0.95,
+                )
 
             if is_explicit_policy and not has_live_headcount:
                 return RouteDecision(
@@ -278,27 +342,7 @@ class QueryRouter:
                 confidence=1.0,
             )
 
-        # 5. Multi-turn Contextual Follow-up
-        if history and any(p.search(sanitized) for p in self._FOLLOW_UP_PATTERNS):
-            prev_context_category = self._infer_history_context(history)
-            if prev_context_category == RouteCategory.RAG_KNOWLEDGE:
-                return RouteDecision(
-                    category=RouteCategory.RAG_KNOWLEDGE,
-                    allowed=True,
-                    target="rag",
-                    reason="Contextual follow-up continuing prior RAG policy inquiry.",
-                    confidence=0.9,
-                )
-            if prev_context_category == RouteCategory.DATA_QUERY:
-                return RouteDecision(
-                    category=RouteCategory.DATA_QUERY,
-                    allowed=True,
-                    target="data_specialist",
-                    reason="Contextual follow-up continuing prior database inquiry.",
-                    confidence=0.9,
-                )
-
-        # 6. Fallback with Semantic Intent Classification
+        # 7. Fallback with Semantic Intent Classification
         semantic_decision = self._classify_with_llm(sanitized)
         if semantic_decision is not None:
             return semantic_decision
@@ -329,9 +373,10 @@ class QueryRouter:
         try:
             llm_client = self.llm or get_llm(temperature=0.0)
             prompt = (
-                f"Classify the following query into exactly one of these categories: [RAG_KNOWLEDGE, DATA_QUERY, CASUAL, GENERAL, OUT_OF_SCOPE].\n\n"
-                f"- RAG_KNOWLEDGE: Questions about company HR policies, benefits, leave, conduct, workplace guidelines, equipment stipends, rules.\n"
-                f"- DATA_QUERY: Questions asking for live database stats, employee names/emails/salaries, team sizes, department counts, hire dates.\n"
+                f"Classify the following query into exactly one of these categories: [HYBRID, RAG_KNOWLEDGE, DATA_QUERY, CASUAL, GENERAL, OUT_OF_SCOPE].\n\n"
+                f"- HYBRID: Queries containing BOTH a database query (e.g. employee metrics/counts/records) AND a company policy/guidelines/documentation question.\n"
+                f"- RAG_KNOWLEDGE: Questions about company HR policies, benefits, leave, conduct, workplace guidelines, equipment stipends, rules, eligibility.\n"
+                f"- DATA_QUERY: Questions asking for live database stats, employee names/emails/salaries, team sizes, department counts, hire dates, average tenure.\n"
                 f"- CASUAL: Greetings, pleasantries, thank yous.\n"
                 f"- GENERAL: General technical knowledge, math, definitions.\n"
                 f"- OUT_OF_SCOPE: Questions totally unrelated to workplace, HR, or company info.\n\n"
@@ -341,6 +386,14 @@ class QueryRouter:
             response = llm_client.invoke(prompt)
             text = (response.content if hasattr(response, "content") else str(response)).strip().upper()
 
+            if "HYBRID" in text:
+                return RouteDecision(
+                    category=RouteCategory.HYBRID,
+                    allowed=True,
+                    target="hybrid",
+                    reason="Semantic router classified query as compound hybrid data and policy inquiry.",
+                    confidence=0.9,
+                )
             if "DATA_QUERY" in text or "SQL" in text:
                 return RouteDecision(
                     category=RouteCategory.DATA_QUERY,
@@ -409,19 +462,23 @@ class QueryRouter:
                 continue
 
             if isinstance(item, RouteDecision):
-                if item.category in (RouteCategory.RAG_KNOWLEDGE, RouteCategory.DATA_QUERY):
+                if item.category in (RouteCategory.RAG_KNOWLEDGE, RouteCategory.DATA_QUERY, RouteCategory.HYBRID):
                     return item.category
                 return None
 
             if isinstance(item, dict):
                 decision_obj = item.get("decision")
                 if isinstance(decision_obj, RouteDecision):
-                    if decision_obj.category in (RouteCategory.RAG_KNOWLEDGE, RouteCategory.DATA_QUERY):
+                    if decision_obj.category in (RouteCategory.RAG_KNOWLEDGE, RouteCategory.DATA_QUERY, RouteCategory.HYBRID):
                         return decision_obj.category
-                if item.get("category") == RouteCategory.RAG_KNOWLEDGE:
-                    return RouteCategory.RAG_KNOWLEDGE
-                if item.get("category") == RouteCategory.DATA_QUERY:
+                if item.get("category") in (RouteCategory.RAG_KNOWLEDGE, RouteCategory.DATA_QUERY, RouteCategory.HYBRID):
+                    return item.get("category")
+                if item.get("intent") in ("SQL_ONLY", "SQL", IntentType.SQL_ONLY):
                     return RouteCategory.DATA_QUERY
+                if item.get("intent") in ("RAG_ONLY", "RAG", IntentType.RAG_ONLY):
+                    return RouteCategory.RAG_KNOWLEDGE
+                if item.get("intent") in ("HYBRID", IntentType.HYBRID):
+                    return RouteCategory.HYBRID
 
             user_text = ""
             if isinstance(item, str):
@@ -437,6 +494,10 @@ class QueryRouter:
             if not user_text:
                 continue
 
+            is_data = any(p.search(user_text) for p in self._DATA_QUERY_PATTERNS)
+            is_rag = any(p.search(user_text) for p in self._RAG_KNOWLEDGE_PATTERNS)
+            if is_data and is_rag:
+                return RouteCategory.HYBRID
             if any(p.search(user_text) for p in self._RAG_KNOWLEDGE_PATTERNS):
                 return RouteCategory.RAG_KNOWLEDGE
             if any(p.search(user_text) for p in self._DATA_QUERY_PATTERNS):
@@ -445,3 +506,4 @@ class QueryRouter:
             return None
 
         return None
+
