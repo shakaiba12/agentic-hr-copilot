@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+node_modules/
 # C extensions
 *.so
 
@@ -54,3 +54,4 @@ faiss_index/
 .coverage
 htmlcov/
 company_docs/organization/emails.csv
+frontend/.vite/
